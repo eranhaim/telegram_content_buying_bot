@@ -6,9 +6,9 @@ import { startMaintenance } from "./maintenance.js";
 
 async function main() {
   await connectDatabase();
-  await startBot();
   startMaintenance();
   const server = app.listen(config.PORT, () => console.log(`Marketplace API listening on ${config.PORT}`));
+  void startBot().catch((error) => console.error("Telegram bot startup failed", error));
   const shutdown = async () => {
     server.close();
     await stopBot();
