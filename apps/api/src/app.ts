@@ -40,9 +40,11 @@ const equalSecret = (left: string, right: string) => {
 const audit = (req: Request, action: string, entityType: string, entityId?: string, metadata?: unknown) =>
   AuditEvent.create({ actorType: req.actor?.kind ?? "system", actorId: req.actor?.kind === "admin" ? req.actor.email : req.actor?.kind === "telegram" ? req.actor.telegramId : undefined, action, entityType, entityId, metadata, ip: req.ip });
 
-app.get("/health", asyncRoute(async (_req, res) => {
+const health = asyncRoute(async (_req, res) => {
   res.json({ ok: true });
-}));
+});
+app.get("/health", health);
+app.get("/api/health", health);
 
 app.use("/api/webhooks/mantapay", express.raw({ type: "*/*", limit: "1mb" }));
 app.post("/api/webhooks/mantapay", asyncRoute(async (req, res) => {
