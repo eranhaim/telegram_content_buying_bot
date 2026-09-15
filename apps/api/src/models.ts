@@ -1,4 +1,6 @@
-import { Schema, model, models, type InferSchemaType } from "mongoose";
+import mongoose, { type InferSchemaType } from "mongoose";
+
+const { Schema, model, models } = mongoose;
 
 const timestamps = { timestamps: true };
 const money = { amountMinor: { type: Number, required: true, min: 1 }, currency: { type: String, required: true, uppercase: true } };
