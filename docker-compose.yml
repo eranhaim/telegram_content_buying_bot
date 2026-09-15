@@ -48,7 +48,7 @@ services:
       - minio-data:/data
 
   minio-init:
-    image: minio/mc:latest
+    image: quay.io/minio/mc:RELEASE.2025-05-21T01-59-54Z
     env_file: .env
     depends_on:
       - minio
