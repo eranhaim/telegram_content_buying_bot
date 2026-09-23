@@ -10,7 +10,7 @@
     "dev": "npm run dev --workspace=@marketplace/api",
     "dev:web": "npm run dev --workspace=@marketplace/web",
     "build": "npm run build --workspaces",
-    "test": "npm run test --workspace=@marketplace/api"
+    "test": "npm run test --workspaces"
   },
   "engines": {
     "node": ">=20"
