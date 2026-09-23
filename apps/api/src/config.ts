@@ -12,12 +12,7 @@ const env = z.object({
   ADMIN_PASSWORD: z.string().min(8).default("change-me"),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_WEBHOOK_SECRET: z.string().min(16).default("development-webhook-secret"),
-  MANTAPAY_MERCHANT_ID: z.string().optional(),
-  MANTAPAY_HASH_KEY: z.string().optional(),
-  MANTAPAY_PROCESS_BASE: z.string().url().default("https://process.mantapay.biz"),
-  MANTAPAY_CURRENCY: z.enum(["EUR", "USD", "GBP"]).default("EUR"),
-  MANTAPAY_CPM: z.string().default("1"),
-  MANTAPAY_CHECKOUT_FEE_MINOR: z.coerce.number().int().nonnegative().default(0),
+  MARKETPLACE_CURRENCY: z.enum(["EUR", "USD", "GBP"]).default("EUR"),
   S3_ENDPOINT: z.string().url().optional(),
   S3_PUBLIC_ENDPOINT: z.string().url().optional(),
   S3_REGION: z.string().default("us-east-1"),
@@ -27,6 +22,7 @@ const env = z.object({
   S3_FORCE_PATH_STYLE: z.coerce.boolean().default(true),
   HIGHERPAYS_API_BASE: z.string().url().optional(),
   HIGHERPAYS_MARKETPLACE_API_KEY: z.string().optional(),
+  HIGHERPAYS_EVENT_SIGNING_SECRET: z.string().optional(),
 }).parse(process.env);
 
 export const config = {
@@ -40,6 +36,9 @@ if (config.isProduction) {
     config.JWT_SECRET.length >= 32 ? null : "JWT_SECRET (at least 32 characters)",
     config.TELEGRAM_BOT_TOKEN ? null : "TELEGRAM_BOT_TOKEN",
     config.PUBLIC_APP_URL.startsWith("https://") ? null : "PUBLIC_APP_URL (HTTPS)",
+    config.HIGHERPAYS_API_BASE ? null : "HIGHERPAYS_API_BASE",
+    config.HIGHERPAYS_MARKETPLACE_API_KEY ? null : "HIGHERPAYS_MARKETPLACE_API_KEY",
+    config.HIGHERPAYS_EVENT_SIGNING_SECRET ? null : "HIGHERPAYS_EVENT_SIGNING_SECRET",
   ].filter(Boolean);
   if (missing.length) throw new Error(`Production configuration is incomplete: ${missing.join(", ")}`);
 }

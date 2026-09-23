@@ -117,22 +117,22 @@ const orderSchema = new Schema({
   cartId: { type: Schema.Types.ObjectId, ref: "Cart", required: true, unique: true },
   lines: { type: [orderLineSchema], required: true, validate: [(value: unknown[]) => value.length > 0, "order_needs_lines"] },
   subtotalMinor: { type: Number, required: true },
-  checkoutFeeMinor: { type: Number, required: true, default: 0 },
   totalMinor: { type: Number, required: true },
   currency: { type: String, required: true, uppercase: true },
   paymentStatus: { type: String, enum: ["pending", "paid", "failed", "expired", "refunded", "charged_back"], default: "pending", index: true },
   fulfillmentStatus: { type: String, enum: ["not_ready", "queued", "partial", "delivered", "failed", "revoked"], default: "not_ready" },
-  mantaPayOrderRef: { type: String, required: true, unique: true },
+  higherPaysPaymentLinkReference: { type: String, sparse: true, unique: true },
+  higherPaysCheckoutUrl: String,
+  higherPaysPaymentId: String,
   providerTransactionId: String,
   returnNonce: { type: String, required: true, unique: true },
   expiresAt: { type: Date, required: true },
   paidAt: Date,
-  higherPaysExportedAt: Date,
 }, timestamps);
 
 const paymentAttemptSchema = new Schema({
   orderId: { type: Schema.Types.ObjectId, ref: "Order", required: true, index: true },
-  provider: { type: String, enum: ["mantapay"], default: "mantapay" },
+  provider: { type: String, enum: ["higherpays"], default: "higherpays" },
   providerEventId: { type: String, sparse: true, unique: true },
   providerTransactionId: { type: String, sparse: true, unique: true },
   status: { type: String, enum: ["created", "pending", "approved", "declined", "chargeback"], default: "created" },
@@ -162,7 +162,7 @@ const deliverySchema = new Schema({
 deliverySchema.index({ entitlementId: 1, assetId: 1 }, { unique: true });
 
 const webhookEventSchema = new Schema({
-  provider: { type: String, default: "mantapay" },
+  provider: { type: String, default: "higherpays" },
   providerEventId: { type: String, required: true },
   type: { type: String, required: true },
   signatureValid: { type: Boolean, required: true },

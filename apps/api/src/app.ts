@@ -5,8 +5,8 @@ import { z } from "zod";
 import { config } from "./config.js";
 import { issueAdminSession, issueTelegramSession, requireActor } from "./auth.js";
 import { Agency, Agent, AuditEvent, Cart, Creator, Delivery, Entitlement, MediaAsset, Order, Product, TelegramUser, WebhookEvent } from "./models.js";
-import { approveOrder, createOrderForCart } from "./orders.js";
-import { parseWebhook, startCheckout, statusForOrder } from "./mantapay.js";
+import { applyHigherPaysEvent, createOrderForCart } from "./orders.js";
+import { reconcileHigherPaysOrder, verifyHigherPaysEvent, type HigherPaysLifecycleEvent } from "./higherpays.js";
 import { objectKey, signedUploadUrl } from "./storage.js";
 import { deliverEntitlements } from "./telegram.js";
 import { rateLimit } from "./rate-limit.js";
@@ -28,7 +28,7 @@ const asyncRoute = (fn: (req: Request, res: Response) => Promise<unknown>) =>
     const message = error instanceof Error ? error.message : "server_error";
     const status = error instanceof z.ZodError ? 400
       : ["cart_empty", "unavailable_product", "mixed_currency_cart", "mixed_agency_cart", "age_confirmation_required", "agency_checkout_not_configured"].includes(message) ? 409
-        : ["mantapay_not_configured", "object_storage_not_configured"].includes(message) ? 503 : 500;
+        : ["higherpays_not_configured", "object_storage_not_configured"].includes(message) ? 503 : 500;
     res.status(status).json({ error: message });
   });
 const actorUser = (req: Request) => req.actor?.kind === "telegram" ? req.actor.userId : null;
@@ -46,29 +46,32 @@ const health = asyncRoute(async (_req, res) => {
 app.get("/health", health);
 app.get("/api/health", health);
 
-app.use("/api/webhooks/mantapay", express.raw({ type: "*/*", limit: "1mb" }));
-app.post("/api/webhooks/mantapay", asyncRoute(async (req, res) => {
-  const event = parseWebhook(req.body as Buffer);
-  if (!event.valid || !event.providerEventId) return res.status(401).json({ error: "invalid_signature" });
+app.use("/api/integrations/higherpays/events", express.raw({ type: "application/json", limit: "1mb" }));
+app.post("/api/integrations/higherpays/events", asyncRoute(async (req, res) => {
+  const raw = (req.body as Buffer).toString("utf8");
+  const eventId = req.header("x-higherpays-event-id") ?? undefined;
+  if (!verifyHigherPaysEvent(req.header("x-higherpays-timestamp") ?? undefined, eventId, req.header("x-higherpays-signature") ?? undefined, raw)) {
+    return res.status(401).json({ error: "invalid_higherpays_signature" });
+  }
+  const event = z.object({
+    eventId: z.string().uuid(), type: z.enum(["payment.approved", "payment.refunded", "payment.chargeback"]),
+    occurredAt: z.string().datetime(), marketplaceOrderId: z.string().min(8), paymentLinkReference: z.string().min(1),
+    paymentId: z.string().uuid().nullable(), providerTransactionId: z.string().nullable(),
+    amountMinor: z.number().int().positive(), currency: z.string().length(3),
+  }).parse(JSON.parse(raw)) as HigherPaysLifecycleEvent;
+  if (event.eventId !== eventId) return res.status(400).json({ error: "event_id_mismatch" });
   try {
-    await WebhookEvent.create({ providerEventId: event.providerEventId, type: event.kind, signatureValid: true, payload: event.fields });
+    await WebhookEvent.create({ provider: "higherpays", providerEventId: event.eventId, type: event.type, signatureValid: true, payload: event });
   } catch (error: unknown) {
-    if ((error as { code?: number }).code === 11000) {
-      const existing = await WebhookEvent.findOne({ providerEventId: event.providerEventId, type: event.kind });
-      if (existing?.processedAt) return res.json({ ok: true, duplicate: true });
-    } else throw error;
+    if ((error as { code?: number }).code === 11000) return res.json({ ok: true, duplicate: true });
+    throw error;
   }
   try {
-    if (event.kind === "payment" && event.status === "approved") {
-      await approveOrder({ orderRef: event.reference ?? "", transactionId: event.transactionId, providerEventId: event.providerEventId, amountMinor: event.amountMinor, currency: event.currency, replyCode: event.replyCode, rawPayload: event.fields });
-    } else if (event.kind === "chargeback") {
-      const order = await Order.findOneAndUpdate({ mantaPayOrderRef: event.reference, paymentStatus: "paid" }, { $set: { paymentStatus: "charged_back", fulfillmentStatus: "revoked" } }, { new: true });
-      if (order) await Entitlement.updateMany({ orderId: order._id }, { $set: { status: "revoked" } });
-    }
-    await WebhookEvent.updateOne({ providerEventId: event.providerEventId, type: event.kind }, { $set: { processedAt: new Date() } });
-    res.json({ ok: true, status: event.status });
+    await applyHigherPaysEvent(event);
+    await WebhookEvent.updateOne({ providerEventId: event.eventId, type: event.type }, { $set: { processedAt: new Date() } });
+    res.json({ ok: true });
   } catch (error) {
-    await WebhookEvent.updateOne({ providerEventId: event.providerEventId, type: event.kind }, { $set: { processingError: error instanceof Error ? error.message.slice(0, 500) : "processing_failed" } });
+    await WebhookEvent.updateOne({ providerEventId: event.eventId, type: event.type }, { $set: { processingError: error instanceof Error ? error.message.slice(0, 500) : "processing_failed" } });
     throw error;
   }
 }));
@@ -108,7 +111,7 @@ app.post("/api/me/age-confirmation", requireActor("telegram"), asyncRoute(async 
 app.get("/api/cart", requireActor("telegram"), asyncRoute(async (req, res) => {
   const userId = actorUser(req)!;
   const cart = await Cart.findOne({ telegramUserId: userId, status: "active" });
-  res.json(cart ?? { items: [], currency: config.MANTAPAY_CURRENCY });
+  res.json(cart ?? { items: [], currency: config.MARKETPLACE_CURRENCY });
 }));
 app.post("/api/cart/items", requireActor("telegram"), asyncRoute(async (req, res) => {
   const body = z.object({ productId: objectId }).parse(req.body);
@@ -144,14 +147,8 @@ app.post("/api/checkout", requireActor("telegram"), rateLimit(60_000, 5), asyncR
 }));
 app.get("/api/checkout/:publicId", rateLimit(60_000, 10), asyncRoute(async (req, res) => {
   const order = await Order.findOne({ publicId: req.params.publicId, returnNonce: req.query.state, paymentStatus: "pending" });
-  if (!order || order.expiresAt < new Date()) return res.status(410).send("This checkout session has expired.");
-  const redirect = await startCheckout({
-    orderRef: order.mantaPayOrderRef, amountMinor: order.subtotalMinor, feeMinor: order.checkoutFeeMinor, currency: order.currency,
-    notificationUrl: new URL("/api/webhooks/mantapay", config.PUBLIC_APP_URL).toString(),
-    returnUrl: new URL(`/payment-complete?order=${order.publicId}&state=${order.returnNonce}`, config.PUBLIC_APP_URL).toString(),
-    ip: req.ip,
-  });
-  res.redirect(302, redirect);
+  if (!order || order.expiresAt < new Date() || !order.higherPaysCheckoutUrl) return res.status(410).send("This checkout session has expired.");
+  res.redirect(302, order.higherPaysCheckoutUrl);
 }));
 app.get("/api/orders/:publicId", requireActor("telegram"), asyncRoute(async (req, res) => {
   const order = await Order.findOne({ publicId: req.params.publicId, telegramUserId: actorUser(req) }).select("-returnNonce");
@@ -166,8 +163,8 @@ app.get("/api/payment-return/:publicId", asyncRoute(async (req, res) => {
 app.post("/api/orders/:publicId/reconcile", requireActor("telegram"), asyncRoute(async (req, res) => {
   const order = await Order.findOne({ publicId: req.params.publicId, telegramUserId: actorUser(req) });
   if (!order) return res.status(404).json({ error: "order_not_found" });
-  const status = await statusForOrder(order.mantaPayOrderRef);
-  if (status.status === "approved") await approveOrder({ orderRef: order.mantaPayOrderRef, transactionId: status.attempt?.transactionId, providerEventId: `reconcile:${status.attempt?.transactionId}`, amountMinor: status.attempt?.amountMinor, currency: status.attempt?.currency, replyCode: status.attempt?.replyCode, rawPayload: status });
+  const status = await reconcileHigherPaysOrder(order.publicId);
+  await applyHigherPaysEvent(status);
   res.json({ status: status.status });
 }));
 app.get("/api/purchases", requireActor("telegram"), asyncRoute(async (req, res) => {
