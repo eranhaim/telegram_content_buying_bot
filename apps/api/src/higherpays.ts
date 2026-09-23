@@ -20,7 +20,8 @@ export type HigherPaysLifecycleEvent = HigherPaysOrder & {
 
 function integrationUrl(path: string) {
   if (!config.HIGHERPAYS_API_BASE || !config.HIGHERPAYS_MARKETPLACE_API_KEY) throw new Error("higherpays_not_configured");
-  return new URL(path, config.HIGHERPAYS_API_BASE);
+  const base = config.HIGHERPAYS_API_BASE.endsWith("/") ? config.HIGHERPAYS_API_BASE : `${config.HIGHERPAYS_API_BASE}/`;
+  return new URL(path.replace(/^\//, ""), base);
 }
 
 async function request(path: string, init: RequestInit) {
