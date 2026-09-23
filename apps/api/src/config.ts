@@ -11,7 +11,6 @@ const env = z.object({
   ADMIN_EMAIL: z.string().email().default("admin@example.com"),
   ADMIN_PASSWORD: z.string().min(8).default("change-me"),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
-  TELEGRAM_WEB_APP_VERSION: z.string().regex(/^[a-zA-Z0-9._-]+$/).optional(),
   TELEGRAM_WEBHOOK_SECRET: z.string().min(16).default("development-webhook-secret"),
   MARKETPLACE_CURRENCY: z.enum(["EUR", "USD", "GBP"]).default("EUR"),
   S3_ENDPOINT: z.string().url().optional(),
@@ -30,11 +29,6 @@ export const config = {
   ...env,
   isProduction: env.NODE_ENV === "production",
   apiUrl: (path: string) => new URL(path, env.PUBLIC_APP_URL).toString(),
-  telegramWebAppUrl: () => {
-    const url = new URL(env.PUBLIC_APP_URL);
-    if (env.TELEGRAM_WEB_APP_VERSION) url.searchParams.set("v", env.TELEGRAM_WEB_APP_VERSION);
-    return url.toString();
-  },
 };
 
 if (config.isProduction) {

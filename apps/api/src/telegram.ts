@@ -11,7 +11,7 @@ export async function startBot() {
     menuButton: {
       type: "web_app",
       text: "Open catalog",
-      web_app: { url: config.telegramWebAppUrl() },
+      web_app: { url: config.PUBLIC_APP_URL },
     },
   });
   bot.start(async (ctx) => {
@@ -21,7 +21,7 @@ export async function startBot() {
       { upsert: true, setDefaultsOnInsert: true },
     );
     await ctx.reply("Welcome. Open the catalog to browse available content.", {
-      reply_markup: { inline_keyboard: [[{ text: "Open catalog", web_app: { url: config.telegramWebAppUrl() } }]] },
+      reply_markup: { inline_keyboard: [[{ text: "Open catalog", web_app: { url: config.PUBLIC_APP_URL } }]] },
     });
   });
   bot.command("purchases", async (ctx) => {
