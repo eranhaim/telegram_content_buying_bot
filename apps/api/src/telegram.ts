@@ -7,6 +7,13 @@ export const bot = config.TELEGRAM_BOT_TOKEN ? new Telegraf(config.TELEGRAM_BOT_
 
 export async function startBot() {
   if (!bot) return;
+  await bot.telegram.setChatMenuButton({
+    menuButton: {
+      type: "web_app",
+      text: "Open catalog",
+      web_app: { url: config.telegramWebAppUrl() },
+    },
+  });
   bot.start(async (ctx) => {
     await TelegramUser.findOneAndUpdate(
       { telegramId: String(ctx.from.id) },
@@ -14,7 +21,7 @@ export async function startBot() {
       { upsert: true, setDefaultsOnInsert: true },
     );
     await ctx.reply("Welcome. Open the catalog to browse available content.", {
-      reply_markup: { inline_keyboard: [[{ text: "Open catalog", web_app: { url: config.PUBLIC_APP_URL } }]] },
+      reply_markup: { inline_keyboard: [[{ text: "Open catalog", web_app: { url: config.telegramWebAppUrl() } }]] },
     });
   });
   bot.command("purchases", async (ctx) => {
