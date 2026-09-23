@@ -4,7 +4,7 @@ import type { NextFunction, Request, Response } from "express";
 import { config } from "./config.js";
 import { TelegramUser } from "./models.js";
 
-export type AppActor = { kind: "telegram"; userId: string; telegramId: string } | { kind: "admin"; email: string };
+export type AppActor = { kind: "telegram"; userId: string; telegramId: string } | { kind: "admin" };
 declare global {
   namespace Express { interface Request { actor?: AppActor; } }
 }
@@ -45,8 +45,13 @@ export async function issueTelegramSession(initData: string) {
   };
 }
 
-export function issueAdminSession(email: string) {
-  return jwt.sign({ kind: "admin", email }, config.JWT_SECRET, { expiresIn: "8h" });
+export function verifyAdminPassword(password: string) {
+  const sharedPassword = config.ADMIN_SHARED_PASSWORD;
+  return sharedPassword ? secureEqual(password, sharedPassword) : false;
+}
+
+export function issueAdminSession() {
+  return jwt.sign({ kind: "admin" }, config.JWT_SECRET, { expiresIn: "4h" });
 }
 
 export function requireActor(kind?: AppActor["kind"]) {

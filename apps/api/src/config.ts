@@ -8,8 +8,7 @@ const env = z.object({
   PUBLIC_APP_URL: z.string().url().default("http://localhost:5173"),
   MONGODB_URI: z.string().min(1).default("mongodb://localhost:27017/telegram_marketplace"),
   JWT_SECRET: z.string().min(16).default("development-secret-change-me"),
-  ADMIN_EMAIL: z.string().email().default("admin@example.com"),
-  ADMIN_PASSWORD: z.string().min(8).default("change-me"),
+  ADMIN_SHARED_PASSWORD: z.string().min(1).optional(),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_WEBHOOK_SECRET: z.string().min(16).default("development-webhook-secret"),
   MARKETPLACE_CURRENCY: z.enum(["EUR", "USD", "GBP"]).default("EUR"),
@@ -34,6 +33,7 @@ export const config = {
 if (config.isProduction) {
   const missing = [
     config.JWT_SECRET.length >= 32 ? null : "JWT_SECRET (at least 32 characters)",
+    config.ADMIN_SHARED_PASSWORD ? null : "ADMIN_SHARED_PASSWORD",
     config.TELEGRAM_BOT_TOKEN ? null : "TELEGRAM_BOT_TOKEN",
     config.PUBLIC_APP_URL.startsWith("https://") ? null : "PUBLIC_APP_URL (HTTPS)",
     config.HIGHERPAYS_API_BASE ? null : "HIGHERPAYS_API_BASE",

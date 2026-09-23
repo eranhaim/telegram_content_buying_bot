@@ -1,9 +1,8 @@
-import crypto from "node:crypto";
 import cors from "cors";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
 import { config } from "./config.js";
-import { issueAdminSession, issueTelegramSession, requireActor } from "./auth.js";
+import { issueAdminSession, issueTelegramSession, requireActor, verifyAdminPassword } from "./auth.js";
 import { Agency, Agent, AuditEvent, Cart, Creator, Delivery, Entitlement, MediaAsset, Order, Product, TelegramUser, WebhookEvent } from "./models.js";
 import { applyHigherPaysEvent, createOrderForCart } from "./orders.js";
 import { reconcileHigherPaysOrder, verifyHigherPaysEvent, type HigherPaysLifecycleEvent } from "./higherpays.js";
@@ -45,13 +44,8 @@ const catalogProduct = async (product: any, previews: Map<string, any>) => {
     } : null,
   };
 };
-const equalSecret = (left: string, right: string) => {
-  const a = Buffer.from(left);
-  const b = Buffer.from(right);
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
-};
 const audit = (req: Request, action: string, entityType: string, entityId?: string, metadata?: unknown) =>
-  AuditEvent.create({ actorType: req.actor?.kind ?? "system", actorId: req.actor?.kind === "admin" ? req.actor.email : req.actor?.kind === "telegram" ? req.actor.telegramId : undefined, action, entityType, entityId, metadata, ip: req.ip });
+  AuditEvent.create({ actorType: req.actor?.kind ?? "system", actorId: req.actor?.kind === "admin" ? "shared-password" : req.actor?.kind === "telegram" ? req.actor.telegramId : undefined, action, entityType, entityId, metadata, ip: req.ip });
 
 const health = asyncRoute(async (_req, res) => {
   res.json({ ok: true });
@@ -95,10 +89,10 @@ app.post("/api/auth/telegram", rateLimit(60_000, 30), asyncRoute(async (req, res
   res.json(await issueTelegramSession(body.initData));
 }));
 app.post("/api/auth/admin", rateLimit(15 * 60_000, 10), asyncRoute(async (req, res) => {
-  const body = z.object({ email: z.string().email(), password: z.string().min(1) }).parse(req.body);
-  const passwordOk = equalSecret(body.email, config.ADMIN_EMAIL) && equalSecret(body.password, config.ADMIN_PASSWORD);
+  const body = z.object({ password: z.string().min(1) }).strict().parse(req.body);
+  const passwordOk = verifyAdminPassword(body.password);
   if (!passwordOk) return res.status(401).json({ error: "invalid_credentials" });
-  res.json({ token: issueAdminSession(body.email) });
+  res.json({ token: issueAdminSession() });
 }));
 
 app.get("/api/catalog/creators", requireActor("telegram"), asyncRoute(async (_req, res) => {

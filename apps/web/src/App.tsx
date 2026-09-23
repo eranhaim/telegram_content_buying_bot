@@ -137,7 +137,7 @@ function Admin() {
   useEffect(() => { if (token) { setToken(token); load(); } }, [token]);
   const login = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const data = new FormData(event.currentTarget);
-    const result = await request<{ token: string }>("/auth/admin", { method: "POST", body: JSON.stringify({ email: data.get("email"), password: data.get("password") }) });
+    const result = await request<{ token: string }>("/auth/admin", { method: "POST", body: JSON.stringify({ password: data.get("password") }) });
     sessionStorage.setItem("marketplace_admin_token", result.token); setToken(result.token); setAdminToken(result.token);
   };
   const submit = async (event: FormEvent<HTMLFormElement>, path: string, build: (data: FormData) => unknown) => {
@@ -192,7 +192,7 @@ function Admin() {
   const publish = async (id: string) => { try { await request(`/admin/products/${id}`, { method: "PATCH", body: JSON.stringify({ status: "published" }) }); setNotice("Product published."); load(); } catch (error) { setNotice(error instanceof Error ? error.message : "Publish failed"); } };
   const publishCreator = async (id: string) => { try { await request(`/admin/creators/${id}`, { method: "PATCH", body: JSON.stringify({ status: "published" }) }); setNotice("Creator published."); load(); } catch (error) { setNotice(error instanceof Error ? error.message : "Publish failed"); } };
   const setDefaultAgent = async (agent: { _id: string; agencyId: string; name: string }) => { try { await request(`/admin/agencies/${agent.agencyId}`, { method: "PATCH", body: JSON.stringify({ defaultAgentId: agent._id }) }); setNotice(`${agent.name} is now the checkout agent.`); } catch (error) { setNotice(error instanceof Error ? error.message : "Update failed"); } };
-  if (!token) return <main><h1>Administrator sign in</h1><form onSubmit={(event) => void login(event)}><input name="email" type="email" placeholder="Email" required /><input name="password" type="password" placeholder="Password" required /><button>Sign in</button></form></main>;
+  if (!token) return <main><h1>Administrator sign in</h1><form onSubmit={(event) => void login(event)}><input name="password" type="password" placeholder="Password" autoComplete="current-password" required /><button>Sign in</button></form></main>;
   return <main><h1>Marketplace administration</h1>{notice && <p role="status">{notice}</p>}
     <section><h2>1. Agency</h2><form onSubmit={(event) => void submit(event, "/admin/agencies", (data) => ({ name: data.get("name"), higherPaysWorkspaceId: data.get("workspace") }))}><input name="name" placeholder="Agency name" required /><input name="workspace" placeholder="HigherPays workspace ID" required /><button>Create agency</button></form>{agencies.map((agency) => <p key={agency._id}>{agency.name}</p>)}</section>
     <section><h2>2. Agent</h2><form onSubmit={(event) => void submit(event, "/admin/agents", (data) => ({ agencyId: data.get("agencyId"), name: data.get("name"), higherPaysAgentId: data.get("higherPaysAgentId") }))}><select name="agencyId" required><option value="">Agency</option>{agencies.map((agency) => <option value={agency._id} key={agency._id}>{agency.name}</option>)}</select><input name="name" placeholder="Agent name" required /><input name="higherPaysAgentId" placeholder="HigherPays agent ID" required /><button>Create agent</button></form>{agents.map((agent) => <p key={agent._id}>{agent.name} <button onClick={() => void setDefaultAgent(agent)}>Set as checkout agent</button></p>)}</section>
