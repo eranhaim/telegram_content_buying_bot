@@ -1,4 +1,4 @@
-import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { config } from "./config.js";
 
@@ -25,4 +25,10 @@ export async function signedUploadUrl(key: string, mimeType: string) {
 export async function signedDownloadUrl(key: string) {
   if (!publicClient) throw new Error("object_storage_not_configured");
   return getSignedUrl(publicClient, new GetObjectCommand({ Bucket: config.S3_BUCKET, Key: key }), { expiresIn: 300 });
+}
+
+export async function storedObject(key: string) {
+  if (!client) throw new Error("object_storage_not_configured");
+  const object = await client.send(new HeadObjectCommand({ Bucket: config.S3_BUCKET, Key: key }));
+  return { bytes: object.ContentLength, mimeType: object.ContentType };
 }

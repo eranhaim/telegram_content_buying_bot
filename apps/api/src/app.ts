@@ -7,7 +7,7 @@ import { issueAdminSession, issueTelegramSession, requireActor } from "./auth.js
 import { Agency, Agent, AuditEvent, Cart, Creator, Delivery, Entitlement, MediaAsset, Order, Product, TelegramUser, WebhookEvent } from "./models.js";
 import { applyHigherPaysEvent, createOrderForCart } from "./orders.js";
 import { reconcileHigherPaysOrder, verifyHigherPaysEvent, type HigherPaysLifecycleEvent } from "./higherpays.js";
-import { objectKey, signedUploadUrl } from "./storage.js";
+import { objectKey, signedDownloadUrl, signedUploadUrl, storedObject } from "./storage.js";
 import { deliverEntitlements } from "./telegram.js";
 import { rateLimit } from "./rate-limit.js";
 
@@ -33,6 +33,18 @@ const asyncRoute = (fn: (req: Request, res: Response) => Promise<unknown>) =>
     res.status(status).json({ error: message });
   });
 const actorUser = (req: Request) => req.actor?.kind === "telegram" ? req.actor.userId : null;
+const previewMimeType = z.enum(["image/jpeg", "image/png", "image/webp", "video/mp4", "video/webm", "video/quicktime"]);
+const deliveryMimeType = z.string().regex(/^(image|video|audio|application)\//);
+const maxAssetBytes = 50_000_000;
+const catalogProduct = async (product: any, previews: Map<string, any>) => {
+  const preview = product.previewAssetId ? previews.get(String(product.previewAssetId)) : undefined;
+  return {
+    _id: String(product._id), title: product.title, description: product.description, amountMinor: product.amountMinor,
+    currency: product.currency, creatorId: String(product.creatorId), preview: preview ? {
+      mimeType: preview.mimeType, url: await signedDownloadUrl(preview.storageKey),
+    } : null,
+  };
+};
 const equalSecret = (left: string, right: string) => {
   const a = Buffer.from(left);
   const b = Buffer.from(right);
@@ -95,13 +107,18 @@ app.get("/api/catalog/creators", requireActor("telegram"), asyncRoute(async (_re
 app.get("/api/catalog/creators/:slug/products", requireActor("telegram"), asyncRoute(async (req, res) => {
   const creator = await Creator.findOne({ slug: req.params.slug, status: "published" });
   if (!creator) return res.status(404).json({ error: "creator_not_found" });
-  res.json({ creator, items: await Product.find({ creatorId: creator._id, status: "published" }).select("-mediaAssetIds").sort({ createdAt: -1 }) });
+  const products = await Product.find({ creatorId: creator._id, status: "published" }).select("-mediaAssetIds").sort({ createdAt: -1 });
+  const previewIds = products.flatMap((product: any) => product.previewAssetId ? [product.previewAssetId] : []);
+  const previews = new Map((await MediaAsset.find({ _id: { $in: previewIds }, purpose: "preview", status: "ready" }))
+    .map((asset: any) => [String(asset._id), asset]));
+  res.json({ creator, items: await Promise.all(products.map((product) => catalogProduct(product, previews))) });
 }));
 app.get("/api/catalog/products/:id", requireActor("telegram"), asyncRoute(async (req, res) => {
   if (!objectId.safeParse(req.params.id).success) return res.status(404).json({ error: "product_not_found" });
   const product = await Product.findOne({ _id: req.params.id, status: "published" }).select("-mediaAssetIds");
   if (!product) return res.status(404).json({ error: "product_not_found" });
-  res.json(product);
+  const preview = product.previewAssetId ? await MediaAsset.findOne({ _id: product.previewAssetId, purpose: "preview", status: "ready" }) : null;
+  res.json(await catalogProduct(product, new Map(preview ? [[String(preview._id), preview]] : [])));
 }));
 
 app.post("/api/me/age-confirmation", requireActor("telegram"), asyncRoute(async (req, res) => {
@@ -209,26 +226,42 @@ admin.patch("/creators/:id", asyncRoute(async (req, res) => {
   Object.assign(creator, body); await creator.save(); await audit(req, "creator.update", "creator", String(creator._id), body); res.json(creator);
 }));
 admin.post("/assets/upload-url", asyncRoute(async (req, res) => {
-  const body = z.object({ agencyId: objectId, fileName: z.string().min(1).max(240), mimeType: z.string().regex(/^(image|video|audio|application)\//), bytes: z.number().int().positive().max(50_000_000), sha256: z.string().regex(/^[a-f0-9]{64}$/i) }).parse(req.body);
+  const body = z.object({
+    agencyId: objectId, fileName: z.string().min(1).max(240), purpose: z.enum(["delivery", "preview"]).default("delivery"),
+    mimeType: z.string(), bytes: z.number().int().positive().max(maxAssetBytes), sha256: z.string().regex(/^[a-f0-9]{64}$/i),
+  }).parse(req.body);
+  if (body.purpose === "preview") previewMimeType.parse(body.mimeType);
+  else deliveryMimeType.parse(body.mimeType);
   const asset = await MediaAsset.create({ ...body, storageKey: "pending" });
   asset.storageKey = objectKey(body.agencyId, String(asset._id), body.fileName); await asset.save();
   res.status(201).json({ asset, uploadUrl: await signedUploadUrl(asset.storageKey, asset.mimeType) });
 }));
 admin.post("/assets/:id/complete", asyncRoute(async (req, res) => {
-  const asset = await MediaAsset.findByIdAndUpdate(req.params.id, { $set: { status: "ready" } }, { new: true }); if (!asset) return res.status(404).json({ error: "asset_not_found" });
+  const asset = await MediaAsset.findById(req.params.id); if (!asset) return res.status(404).json({ error: "asset_not_found" });
+  const object = await storedObject(asset.storageKey);
+  if (!object.bytes || object.bytes !== asset.bytes || object.bytes > maxAssetBytes || object.mimeType !== asset.mimeType) {
+    await MediaAsset.updateOne({ _id: asset._id }, { $set: { status: "rejected" } });
+    return res.status(409).json({ error: "uploaded_media_invalid" });
+  }
+  asset.status = "ready"; await asset.save();
   await audit(req, "asset.complete", "media_asset", String(asset._id)); res.json(asset);
 }));
 admin.get("/assets", asyncRoute(async (_req, res) => res.json({ items: await MediaAsset.find().sort({ createdAt: -1 }) })));
 admin.get("/products", asyncRoute(async (_req, res) => res.json({ items: await Product.find().sort({ createdAt: -1 }) })));
 admin.post("/products", asyncRoute(async (req, res) => {
   const body = z.object({ agencyId: objectId, creatorId: objectId, title: z.string().min(1).max(200), slug: z.string().regex(/^[a-z0-9-]+$/), description: z.string().max(4000).default(""), previewAssetId: objectId.optional(), mediaAssetIds: z.array(objectId).min(1), amountMinor: z.number().int().min(300), currency: z.enum(["EUR", "USD", "GBP"]) }).parse(req.body);
+  const creator = await Creator.findOne({ _id: body.creatorId, agencyId: body.agencyId });
+  if (!creator) return res.status(409).json({ error: "creator_agency_mismatch" });
+  if (body.previewAssetId && !await MediaAsset.exists({ _id: body.previewAssetId, agencyId: body.agencyId, purpose: "preview", status: "ready" })) {
+    return res.status(409).json({ error: "preview_not_ready" });
+  }
   const product = await Product.create(body); await audit(req, "product.create", "product", String(product._id)); res.status(201).json(product);
 }));
 admin.patch("/products/:id", asyncRoute(async (req, res) => {
   const body = z.object({ title: z.string().min(1).max(200).optional(), description: z.string().max(4000).optional(), amountMinor: z.number().int().min(300).optional(), status: z.enum(["draft", "review", "published", "archived"]).optional(), mediaAssetIds: z.array(objectId).min(1).optional() }).parse(req.body);
   const product = await Product.findById(req.params.id); if (!product) return res.status(404).json({ error: "product_not_found" });
   if (body.status === "published") {
-    const [creator, count] = await Promise.all([Creator.findById(product.creatorId), MediaAsset.countDocuments({ _id: { $in: body.mediaAssetIds ?? product.mediaAssetIds }, status: "ready" })]);
+    const [creator, count] = await Promise.all([Creator.findById(product.creatorId), MediaAsset.countDocuments({ _id: { $in: body.mediaAssetIds ?? product.mediaAssetIds }, agencyId: product.agencyId, purpose: { $in: ["delivery", null] }, status: "ready" })]);
     if (!creator?.rightsAttestation?.creatorIsAdult || !creator.rightsAttestation?.distributionAuthorized || count !== (body.mediaAssetIds ?? product.mediaAssetIds).length) return res.status(409).json({ error: "product_not_ready_for_publish" });
   }
   if (body.mediaAssetIds) product.contentVersion += 1;

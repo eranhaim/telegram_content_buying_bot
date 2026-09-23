@@ -1,6 +1,9 @@
 const API = "/api";
 
-export type Product = { _id: string; title: string; description: string; amountMinor: number; currency: string; creatorId: string; purchasesCount?: number };
+export type Product = {
+  _id: string; title: string; description: string; amountMinor: number; currency: string; creatorId: string;
+  preview?: { mimeType: string; url: string } | null; purchasesCount?: number;
+};
 export type Creator = { _id: string; displayName: string; slug: string; bio: string };
 
 let token = "";

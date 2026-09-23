@@ -50,6 +50,7 @@ const mediaAssetSchema = new Schema({
   mimeType: { type: String, required: true },
   bytes: { type: Number, required: true, min: 1 },
   sha256: { type: String, required: true },
+  purpose: { type: String, enum: ["delivery", "preview"], default: "delivery", required: true },
   status: { type: String, enum: ["pending", "ready", "rejected"], default: "pending" },
   telegramFileId: String,
 }, timestamps);
@@ -60,7 +61,7 @@ const productSchema = new Schema({
   title: { type: String, required: true, trim: true },
   slug: { type: String, required: true, trim: true, lowercase: true },
   description: { type: String, default: "" },
-  previewAssetId: String,
+  previewAssetId: { type: Schema.Types.ObjectId, ref: "MediaAsset" },
   mediaAssetIds: [{ type: Schema.Types.ObjectId, ref: "MediaAsset", required: true }],
   ...money,
   contentVersion: { type: Number, default: 1, min: 1 },
