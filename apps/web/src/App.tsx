@@ -7,7 +7,6 @@ declare global {
     Telegram?: {
       WebApp?: {
         initData?: string;
-        initDataUnsafe?: { user?: { id: number } };
         ready(): void;
         expand(): void;
         openLink(url: string): void;
@@ -26,8 +25,6 @@ function useTelegramSession() {
     webApp?.ready();
     webApp?.expand();
     const initData = webApp?.initData;
-    // This bridge value is only a consistency check; the API derives identity from signed initData.
-    const bridgeTelegramId = webApp?.initDataUnsafe?.user?.id?.toString();
     if (!initData) {
       setError("Open the catalog using the Open catalog button in @OnlyContentMenuBot. Direct links do not include your Telegram identity.");
       return;
@@ -35,12 +32,8 @@ function useTelegramSession() {
 
     let active = true;
     request<{ token: string; telegramId: string }>("/auth/telegram", { method: "POST", body: JSON.stringify({ initData }) })
-      .then(({ token, telegramId }) => {
+      .then(({ token }) => {
         if (!active) return;
-        if (bridgeTelegramId && bridgeTelegramId !== telegramId) {
-          setError("Telegram returned inconsistent account details. Close this page and reopen the catalog from @OnlyContentMenuBot.");
-          return;
-        }
         setToken(token);
         setReady(true);
       })
@@ -59,10 +52,9 @@ function Catalog() {
     <nav><Link to="/">Discover</Link><Link to="/cart">Cart</Link><Link to="/library">Purchases</Link></nav>
     <p className="eyebrow">PRIVATE CREATOR MARKETPLACE</p><h1>Discover creators</h1>
     <p className="notice">18+ only. Preview clips are deliberately blurred. Purchased content is delivered privately in this Telegram chat after payment.</p>
-    <section className="creator-grid">{creators.map((creator) => <Link className="creator-card" key={creator._id} to={`/creators/${creator.slug}`}>
+    <section className="creator-grid">{creators.length ? creators.map((creator) => <Link className="creator-card" key={creator._id} to={`/creators/${creator.slug}`}>
       <div className="creator-cover"><span>18+</span></div><h2>{creator.displayName}</h2><p>{creator.bio || "Explore this creator’s private collection."}</p><strong>View storefront →</strong>
-    </Link>)}</section>
-    {!creators.length && <p className="empty">No creators are available yet.</p>}
+    </Link>) : <article className="creator-card creator-empty-card"><div className="creator-cover"><span>CATALOG</span></div><h2>New creators coming soon</h2><p>The private catalog is ready. Check back for new verified creator storefronts.</p></article>}</section>
   </main>;
 }
 

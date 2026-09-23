@@ -92,7 +92,7 @@ app.use(express.json({ limit: "1mb" }));
 
 app.post("/api/auth/telegram", rateLimit(60_000, 30), asyncRoute(async (req, res) => {
   const body = z.object({ initData: z.string().min(1) }).parse(req.body);
-  res.json({ token: await issueTelegramSession(body.initData) });
+  res.json(await issueTelegramSession(body.initData));
 }));
 app.post("/api/auth/admin", rateLimit(15 * 60_000, 10), asyncRoute(async (req, res) => {
   const body = z.object({ email: z.string().email(), password: z.string().min(1) }).parse(req.body);

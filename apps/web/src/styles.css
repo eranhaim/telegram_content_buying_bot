@@ -17,6 +17,7 @@ textarea { min-height: 72px; resize: vertical; }
 .creator-grid, .reel-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
 .creator-card { display: block; color: inherit; background: #20121e; border: 1px solid #5f3155; border-radius: 20px; padding: 12px; transition: transform .15s ease, border-color .15s ease; }
 .creator-card:active { transform: scale(.98); border-color: #ff9fdc; }
+.creator-empty-card { border-style: dashed; }
 .creator-cover { min-height: 138px; border-radius: 13px; background: linear-gradient(140deg, #612a58, #201225 68%, #e55fb1); display: flex; align-items: end; padding: 12px; margin-bottom: 13px; }
 .creator-cover span, .blur-label { background: #130c13cc; color: #fff2fb; border: 1px solid #ffffff55; border-radius: 99px; padding: 5px 9px; font-size: .66rem; font-weight: 800; letter-spacing: .08em; }
 .reel-card { padding: 0; overflow: hidden; }
