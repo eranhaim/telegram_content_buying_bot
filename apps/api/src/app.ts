@@ -27,6 +27,7 @@ const asyncRoute = (fn: (req: Request, res: Response) => Promise<unknown>) =>
   (req: Request, res: Response) => void fn(req, res).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : "server_error";
     const status = error instanceof z.ZodError ? 400
+      : ["telegram_auth_unavailable", "invalid_telegram_init_data", "expired_telegram_init_data", "missing_telegram_user"].includes(message) ? 401
       : ["cart_empty", "unavailable_product", "mixed_currency_cart", "mixed_agency_cart", "age_confirmation_required", "agency_checkout_not_configured"].includes(message) ? 409
         : ["higherpays_not_configured", "object_storage_not_configured"].includes(message) ? 503 : 500;
     res.status(status).json({ error: message });

@@ -39,7 +39,10 @@ export async function issueTelegramSession(initData: string) {
     { $set: { username: user.username, firstName: user.first_name, lastName: user.last_name, lastSeenAt: new Date() } },
     { upsert: true, new: true, setDefaultsOnInsert: true },
   );
-  return jwt.sign({ kind: "telegram", userId: String(account._id), telegramId: String(user.id) }, config.JWT_SECRET, { expiresIn: "15m" });
+  return {
+    token: jwt.sign({ kind: "telegram", userId: String(account._id), telegramId: String(user.id) }, config.JWT_SECRET, { expiresIn: "15m" }),
+    telegramId: String(user.id),
+  };
 }
 
 export function issueAdminSession(email: string) {

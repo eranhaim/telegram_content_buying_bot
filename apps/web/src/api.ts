@@ -3,8 +3,9 @@ const API = "/api";
 export type Product = { _id: string; title: string; description: string; amountMinor: number; currency: string; creatorId: string; purchasesCount?: number };
 export type Creator = { _id: string; displayName: string; slug: string; bio: string };
 
-let token = sessionStorage.getItem("marketplace_token") ?? "";
-export function setToken(next: string) { token = next; sessionStorage.setItem("marketplace_token", next); }
+let token = "";
+export function setToken(next: string) { token = next; }
+export function clearToken() { token = ""; sessionStorage.removeItem("marketplace_token"); }
 export async function request<T>(path: string, init: RequestInit = {}) {
   const response = await fetch(`${API}${path}`, {
     ...init,

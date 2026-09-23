@@ -1,31 +1,60 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { Creator, money, Product, request, setToken } from "./api";
+import { clearToken, Creator, money, Product, request, setToken } from "./api";
 
 declare global {
-  interface Window { Telegram?: { WebApp?: { initData: string; ready(): void; openLink(url: string): void; close(): void } }; }
+  interface Window {
+    Telegram?: {
+      WebApp?: {
+        initData?: string;
+        initDataUnsafe?: { user?: { id: number } };
+        ready(): void;
+        expand(): void;
+        openLink(url: string): void;
+        close(): void;
+      };
+    };
+  }
 }
 
 function useTelegramSession() {
-  const [ready, setReady] = useState(Boolean(sessionStorage.getItem("marketplace_token")));
+  const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
-    if (ready) return;
-    const initData = window.Telegram?.WebApp?.initData;
-    if (!initData) { setError("Open this catalog from the Telegram bot."); return; }
-    window.Telegram?.WebApp?.ready();
-    request<{ token: string }>("/auth/telegram", { method: "POST", body: JSON.stringify({ initData }) })
-      .then(({ token }) => { setToken(token); setReady(true); })
-      .catch((reason) => setError(reason.message));
-  }, [ready]);
+    clearToken();
+    const webApp = window.Telegram?.WebApp;
+    webApp?.ready();
+    webApp?.expand();
+    const initData = webApp?.initData;
+    // This bridge value is only a consistency check; the API derives identity from signed initData.
+    const bridgeTelegramId = webApp?.initDataUnsafe?.user?.id?.toString();
+    if (!initData) {
+      setError("Open the catalog using the Open catalog button in @OnlyContentMenuBot. Direct links do not include your Telegram identity.");
+      return;
+    }
+
+    let active = true;
+    request<{ token: string; telegramId: string }>("/auth/telegram", { method: "POST", body: JSON.stringify({ initData }) })
+      .then(({ token, telegramId }) => {
+        if (!active) return;
+        if (bridgeTelegramId && bridgeTelegramId !== telegramId) {
+          setError("Telegram returned inconsistent account details. Close this page and reopen the catalog from @OnlyContentMenuBot.");
+          return;
+        }
+        setToken(token);
+        setReady(true);
+      })
+      .catch(() => {
+        if (active) setError("Telegram could not verify this Mini App session. Close this page and reopen the catalog from @OnlyContentMenuBot.");
+      });
+    return () => { active = false; };
+  }, []);
   return { ready, error };
 }
 
 function Catalog() {
-  const { ready, error } = useTelegramSession();
   const [creators, setCreators] = useState<Creator[]>([]);
-  useEffect(() => { if (ready) void request<{ items: Creator[] }>("/catalog/creators").then((result) => setCreators(result.items)); }, [ready]);
-  if (error) return <main><h1>Private Marketplace</h1><p>{error}</p></main>;
+  useEffect(() => { void request<{ items: Creator[] }>("/catalog/creators").then((result) => setCreators(result.items)); }, []);
   return <main><nav><Link to="/">Catalog</Link><Link to="/cart">Cart</Link><Link to="/library">Purchases</Link></nav><h1>Creators</h1>{creators.map((creator) => <article key={creator._id}><h2>{creator.displayName}</h2><p>{creator.bio}</p><Link to={`/creators/${creator.slug}`}>View content</Link></article>)}</main>;
 }
 
@@ -160,10 +189,20 @@ function Admin() {
   </main>;
 }
 
-export function App() {
+function Marketplace() {
+  const { ready, error } = useTelegramSession();
+  if (error) return <main><h1>Private Marketplace</h1><p>{error}</p></main>;
+  if (!ready) return <main><h1>Private Marketplace</h1><p>Verifying your Telegram session…</p></main>;
   return <Routes>
     <Route path="/" element={<Catalog />} /><Route path="/creators/:slug" element={<CreatorPage />} /><Route path="/cart" element={<CartPage />} />
     <Route path="/library" element={<Library />} /><Route path="/payment-complete" element={<PaymentComplete />} /><Route path="/admin" element={<Admin />} />
     <Route path="*" element={<Navigate to="/" replace />} />
+  </Routes>;
+}
+
+export function App() {
+  return <Routes>
+    <Route path="/admin" element={<Admin />} />
+    <Route path="*" element={<Marketplace />} />
   </Routes>;
 }
