@@ -17,3 +17,20 @@ The browser UI needs to be launched from Telegram because the API verifies `WebA
 - Obtain MantaPay's written approval for the intended content category before accepting live payments.
 - Configure TLS, persistent MongoDB backups, malware scanning for uploaded objects, and a dedicated MantaPay test merchant before launch.
 - A dedicated HigherPays marketplace ingestion endpoint is implemented separately in the HigherPays repository; set `HIGHERPAYS_API_BASE` and `HIGHERPAYS_MARKETPLACE_API_KEY` only after it is deployed.
+
+## Payment and delivery readiness
+
+Checkout is enabled only when both of these production environment values are present:
+
+- `MANTAPAY_MERCHANT_ID`
+- `MANTAPAY_HASH_KEY`
+
+The checkout endpoint redirects the customer to MantaPay and accepts a signed
+MantaPay webhook at `/api/webhooks/mantapay`. An approved payment creates
+entitlements and sends the private media as protected documents to the
+customer's Telegram chat. The Mini App never exposes purchase download URLs.
+
+The bot must be configured with `TELEGRAM_BOT_TOKEN`, and customers must have
+started the bot so that it has a chat ID for delivery. Object storage must be
+configured through the `S3_*` values. For browser uploads, `S3_PUBLIC_ENDPOINT`
+must be reachable by the administrator's browser.

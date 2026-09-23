@@ -211,7 +211,7 @@ admin.patch("/creators/:id", asyncRoute(async (req, res) => {
   Object.assign(creator, body); await creator.save(); await audit(req, "creator.update", "creator", String(creator._id), body); res.json(creator);
 }));
 admin.post("/assets/upload-url", asyncRoute(async (req, res) => {
-  const body = z.object({ agencyId: objectId, fileName: z.string().min(1).max(240), mimeType: z.string().regex(/^(image|video|application)\//), bytes: z.number().int().positive().max(50_000_000), sha256: z.string().regex(/^[a-f0-9]{64}$/i) }).parse(req.body);
+  const body = z.object({ agencyId: objectId, fileName: z.string().min(1).max(240), mimeType: z.string().regex(/^(image|video|audio|application)\//), bytes: z.number().int().positive().max(50_000_000), sha256: z.string().regex(/^[a-f0-9]{64}$/i) }).parse(req.body);
   const asset = await MediaAsset.create({ ...body, storageKey: "pending" });
   asset.storageKey = objectKey(body.agencyId, String(asset._id), body.fileName); await asset.save();
   res.status(201).json({ asset, uploadUrl: await signedUploadUrl(asset.storageKey, asset.mimeType) });

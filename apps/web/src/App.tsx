@@ -80,8 +80,10 @@ function Admin() {
   const [agencies, setAgencies] = useState<{ _id: string; name: string }[]>([]);
   const [agents, setAgents] = useState<{ _id: string; agencyId: string; name: string }[]>([]);
   const [creators, setCreators] = useState<{ _id: string; agencyId: string; displayName: string; status: string }[]>([]);
-  const [assets, setAssets] = useState<{ _id: string; agencyId: string; fileName: string }[]>([]);
+  const [assets, setAssets] = useState<{ _id: string; agencyId: string; fileName: string; status: string }[]>([]);
   const [products, setProducts] = useState<{ _id: string; title: string; status: string }[]>([]);
+  const [productAgencyId, setProductAgencyId] = useState("");
+  const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const [notice, setNotice] = useState("");
   const load = () => void Promise.all([
     request<{ items: typeof agencies }>("/admin/agencies"), request<{ items: typeof agents }>("/admin/agents"),
@@ -114,6 +116,37 @@ function Admin() {
       event.currentTarget.reset(); setNotice("Media uploaded."); load();
     } catch (error) { setNotice(error instanceof Error ? error.message : "Upload failed"); }
   };
+  const createProduct = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const price = Number(data.get("price"));
+    const amountMinor = Math.round(price * 100);
+    if (!Number.isFinite(price) || !Number.isSafeInteger(amountMinor) || amountMinor < 300) {
+      setNotice("Set a price of at least 3.00.");
+      return;
+    }
+    if (!selectedAssetIds.length) {
+      setNotice("Select at least one uploaded media file.");
+      return;
+    }
+    try {
+      await request("/admin/products", {
+        method: "POST",
+        body: JSON.stringify({
+          agencyId: data.get("agencyId"), creatorId: data.get("creatorId"), title: data.get("title"),
+          slug: data.get("slug"), description: data.get("description"), mediaAssetIds: selectedAssetIds,
+          amountMinor, currency: data.get("currency"),
+        }),
+      });
+      event.currentTarget.reset();
+      setProductAgencyId("");
+      setSelectedAssetIds([]);
+      setNotice("Product saved.");
+      load();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Save failed");
+    }
+  };
   const publish = async (id: string) => { try { await request(`/admin/products/${id}`, { method: "PATCH", body: JSON.stringify({ status: "published" }) }); setNotice("Product published."); load(); } catch (error) { setNotice(error instanceof Error ? error.message : "Publish failed"); } };
   const publishCreator = async (id: string) => { try { await request(`/admin/creators/${id}`, { method: "PATCH", body: JSON.stringify({ status: "published" }) }); setNotice("Creator published."); load(); } catch (error) { setNotice(error instanceof Error ? error.message : "Publish failed"); } };
   const setDefaultAgent = async (agent: { _id: string; agencyId: string; name: string }) => { try { await request(`/admin/agencies/${agent.agencyId}`, { method: "PATCH", body: JSON.stringify({ defaultAgentId: agent._id }) }); setNotice(`${agent.name} is now the checkout agent.`); } catch (error) { setNotice(error instanceof Error ? error.message : "Update failed"); } };
@@ -123,7 +156,7 @@ function Admin() {
     <section><h2>2. Agent</h2><form onSubmit={(event) => void submit(event, "/admin/agents", (data) => ({ agencyId: data.get("agencyId"), name: data.get("name"), higherPaysAgentId: data.get("higherPaysAgentId") }))}><select name="agencyId" required><option value="">Agency</option>{agencies.map((agency) => <option value={agency._id} key={agency._id}>{agency.name}</option>)}</select><input name="name" placeholder="Agent name" required /><input name="higherPaysAgentId" placeholder="HigherPays agent ID" required /><button>Create agent</button></form>{agents.map((agent) => <p key={agent._id}>{agent.name} <button onClick={() => void setDefaultAgent(agent)}>Set as checkout agent</button></p>)}</section>
     <section><h2>3. Creator and rights attestation</h2><form onSubmit={(event) => void submit(event, "/admin/creators", (data) => ({ agencyId: data.get("agencyId"), displayName: data.get("displayName"), slug: data.get("slug"), bio: data.get("bio"), rightsAttestation: { affirmedBy: data.get("affirmedBy"), statementVersion: "2026-09", creatorIsAdult: true, distributionAuthorized: true } }))}><select name="agencyId" required><option value="">Agency</option>{agencies.map((agency) => <option value={agency._id} key={agency._id}>{agency.name}</option>)}</select><input name="displayName" placeholder="Creator display name" required /><input name="slug" pattern="[a-z0-9-]+" placeholder="creator-slug" required /><input name="affirmedBy" placeholder="Approving administrator" required /><textarea name="bio" placeholder="Bio" /><button>Create attested creator</button></form>{creators.map((creator) => <p key={creator._id}>{creator.displayName} · {creator.status} {creator.status !== "published" && <button onClick={() => void publishCreator(creator._id)}>Publish</button>}</p>)}</section>
     <section><h2>4. Private media</h2><form onSubmit={(event) => void upload(event)}><select name="agencyId" required><option value="">Agency</option>{agencies.map((agency) => <option value={agency._id} key={agency._id}>{agency.name}</option>)}</select><input name="file" type="file" required /><button>Upload media</button></form><p>Maximum 50 MB per file for Bot API delivery.</p>{assets.map((asset) => <p key={asset._id}>{asset.fileName}</p>)}</section>
-    <section><h2>5. Product</h2><form onSubmit={(event) => void submit(event, "/admin/products", (data) => ({ agencyId: data.get("agencyId"), creatorId: data.get("creatorId"), title: data.get("title"), slug: data.get("slug"), description: data.get("description"), mediaAssetIds: String(data.get("mediaAssetIds")).split(",").filter(Boolean), amountMinor: Number(data.get("amountMinor")), currency: data.get("currency") }))}><select name="agencyId" required><option value="">Agency</option>{agencies.map((agency) => <option value={agency._id} key={agency._id}>{agency.name}</option>)}</select><select name="creatorId" required><option value="">Creator</option>{creators.map((creator) => <option value={creator._id} key={creator._id}>{creator.displayName}</option>)}</select><input name="title" placeholder="Product title" required /><input name="slug" pattern="[a-z0-9-]+" placeholder="product-slug" required /><textarea name="description" placeholder="Description" /><input name="amountMinor" type="number" min="300" placeholder="Price in cents" required /><select name="currency" defaultValue="EUR"><option>EUR</option><option>USD</option><option>GBP</option></select><input name="mediaAssetIds" placeholder="Media IDs, comma-separated" required /><button>Create product</button></form>{products.map((product) => <p key={product._id}>{product.title} · {product.status} {product.status !== "published" && <button onClick={() => void publish(product._id)}>Publish</button>}</p>)}</section>
+    <section><h2>5. Product</h2><form onSubmit={(event) => void createProduct(event)}><select name="agencyId" required value={productAgencyId} onChange={(event) => { setProductAgencyId(event.target.value); setSelectedAssetIds([]); }}><option value="">Agency</option>{agencies.map((agency) => <option value={agency._id} key={agency._id}>{agency.name}</option>)}</select><select name="creatorId" required><option value="">Creator</option>{creators.filter((creator) => !productAgencyId || creator.agencyId === productAgencyId).map((creator) => <option value={creator._id} key={creator._id}>{creator.displayName}</option>)}</select><input name="title" placeholder="Product title" required /><input name="slug" pattern="[a-z0-9-]+" placeholder="product-slug" required /><textarea name="description" placeholder="Description" /><input name="price" type="number" min="3" step="0.01" placeholder="Price (for example, 9.99)" required /><select name="currency" defaultValue="EUR"><option>EUR</option><option>USD</option><option>GBP</option></select><fieldset><legend>Uploaded content</legend>{assets.filter((asset) => asset.status === "ready" && (!productAgencyId || asset.agencyId === productAgencyId)).map((asset) => <label key={asset._id}><input type="checkbox" checked={selectedAssetIds.includes(asset._id)} onChange={(event) => setSelectedAssetIds((ids) => event.target.checked ? [...ids, asset._id] : ids.filter((id) => id !== asset._id))} /> {asset.fileName}</label>)}</fieldset><button>Create product</button></form>{products.map((product) => <p key={product._id}>{product.title} · {product.status} {product.status !== "published" && <button onClick={() => void publish(product._id)}>Publish</button>}</p>)}</section>
   </main>;
 }
 
