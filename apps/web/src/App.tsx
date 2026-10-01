@@ -58,10 +58,29 @@ function Catalog() {
   const [creators, setCreators] = useState<Creator[]>([]);
   useEffect(() => { void request<{ items: Creator[] }>("/catalog/creators").then((result) => setCreators(result.items)); }, []);
   return <main>
-    <nav><Link to="/">Discover</Link><Link to="/cart">Cart</Link><Link to="/library">Purchases</Link></nav>
+    <nav><Link to="/">Discover</Link><Link to="/guide">Guide</Link><Link to="/cart">Cart</Link><Link to="/library">Purchases</Link></nav>
     <p className="eyebrow">PRIVATE CREATOR MARKETPLACE</p><h1>Discover creators</h1>
     <p className="notice">18+ only. Preview clips are deliberately blurred. Purchased content is delivered privately in this Telegram chat after payment.</p>
+    <Link className="notice" to="/guide">New here? See what you can view and access.</Link>
     <CreatorGrid creators={creators.map((creator) => ({ key: creator._id, name: creator.displayName, bio: creator.bio || "Explore this creator’s private collection.", to: `/creators/${creator.slug}` }))} empty={<article className="creator-card creator-empty-card"><div className="creator-cover"><span>CATALOG</span></div><h2>New creators coming soon</h2><p>The private catalog is ready. Check back for new verified creator storefronts.</p></article>} />
+  </main>;
+}
+
+function Guide() {
+  return <main>
+    <nav><Link to="/">Discover</Link><Link to="/cart">Cart</Link><Link to="/library">Purchases</Link></nav>
+    <p className="eyebrow">NEW USER GUIDE</p><h1>How this marketplace works</h1>
+    <section className="notice">
+      <h2>1. Discover available creators</h2>
+      <p>Start in Discover to browse the published creator storefronts currently available to you.</p>
+      <h2>2. View previews and collections</h2>
+      <p>Open a creator to see their available private collections. Preview images and clips are blurred; full paid content is not streamed in the Mini App.</p>
+      <h2>3. Add content to your cart</h2>
+      <p>Choose the collections you want, review their price in Cart, and continue to secure checkout.</p>
+      <h2>4. Access your purchases in Telegram</h2>
+      <p>After confirmed payment, purchased files are delivered privately by @OnlyContentMenuBot. Purchases shows your order and delivery status.</p>
+    </section>
+    <Link to="/">Start discovering creators</Link>
   </main>;
 }
 
@@ -246,7 +265,7 @@ function Marketplace() {
   const { ready, error } = useTelegramSession();
   if (error) return <main><h1>Private Marketplace</h1><p>{error}</p></main>;
   if (!ready) return <main><h1>Private Marketplace</h1><p>Verifying your Telegram session…</p></main>;
-  return <AgeGate><Routes><Route path="/" element={<Catalog />} /><Route path="/creators/:slug" element={<CreatorPage />} /><Route path="/cart" element={<CartPage />} /><Route path="/library" element={<Library />} /><Route path="/payment-complete" element={<PaymentComplete />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes></AgeGate>;
+  return <AgeGate><Routes><Route path="/" element={<Catalog />} /><Route path="/guide" element={<Guide />} /><Route path="/creators/:slug" element={<CreatorPage />} /><Route path="/cart" element={<CartPage />} /><Route path="/library" element={<Library />} /><Route path="/payment-complete" element={<PaymentComplete />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes></AgeGate>;
 }
 
 export function App() {
