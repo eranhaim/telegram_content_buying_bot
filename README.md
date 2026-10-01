@@ -11,6 +11,10 @@ HigherPays-hosted checkout for a Telegram-launched catalog, with MongoDB order/e
 
 The browser UI needs to be launched from Telegram because the API verifies `WebApp.initData`. Use the admin API/UI to create an agency, agent, set the agency's `defaultAgentId`, attest and publish a creator, upload/complete media, then create and publish a product.
 
+HigherPays production provisioning is owned by the HigherPays operator; follow
+`docs/higherpays-provisioning.md`. The Mini App only creates payment links
+against the pre-provisioned marketplace contract.
+
 ## Important production requirements
 
 - HigherPays owns the MantaPay merchant configuration, hosted checkout, confirmation, reconciliation, and ledger. This service must never be given MantaPay credentials.

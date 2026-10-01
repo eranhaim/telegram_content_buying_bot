@@ -23,6 +23,7 @@ textarea { min-height: 72px; resize: vertical; }
 .reel-card { padding: 0; overflow: hidden; }
 .reel-preview { position: relative; aspect-ratio: 9 / 12; background: #342033; overflow: hidden; }
 .reel-preview video, .reel-preview img { width: 100%; height: 100%; object-fit: cover; filter: blur(16px) saturate(1.2); transform: scale(1.1); }
+.reel-preview.preview-visible video, .reel-preview.preview-visible img { filter: none; transform: none; }
 .blur-label { position: absolute; left: 12px; bottom: 12px; }
 .preview-unavailable { height: 100%; display: grid; place-items: center; color: #c8adbf; background: linear-gradient(135deg, #382037, #1d1421); }
 .reel-copy { padding: 15px; }

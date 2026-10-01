@@ -1,15 +1,16 @@
 import crypto from "node:crypto";
-import { Agency, Agent, Cart, Creator, Delivery, Entitlement, MediaAsset, Order, PaymentAttempt, Product, TelegramUser } from "./models.js";
+import { Agency, Agent, Cart, Category, Creator, Delivery, Entitlement, MediaAsset, Order, PaymentAttempt, Product, TelegramUser } from "./models.js";
 import { createHigherPaysCheckout, type HigherPaysLifecycleEvent, type HigherPaysOrder } from "./higherpays.js";
 import { deliverEntitlements } from "./telegram.js";
-
-const id = (prefix: string) => `${prefix}-${crypto.randomBytes(9).toString("base64url")}`;
+import { orderPublicId, sumMinor } from "./commerce.js";
 
 export async function createOrderForCart(telegramUserId: string) {
   const user = await TelegramUser.findById(telegramUserId);
   if (!user?.ageConfirmedAt) throw new Error("age_confirmation_required");
   const cart = await Cart.findOne({ telegramUserId, status: "active" });
   if (!cart?.items.length) throw new Error("cart_empty");
+  const existing = await Order.findOne({ cartId: cart._id });
+  if (existing?.higherPaysCheckoutUrl) return existing;
   const productIds = cart.items.map((item: any) => item.productId);
   const products = await Product.find({ _id: { $in: productIds }, status: "published" });
   if (products.length !== productIds.length) throw new Error("unavailable_product");
@@ -25,27 +26,42 @@ export async function createOrderForCart(telegramUserId: string) {
   const productById = new Map(products.map((product) => [String(product._id), product]));
   const lines = await Promise.all(cart.items.map(async (item: any) => {
     const product = productById.get(String(item.productId))!;
-    const creator = await Creator.findById(product.creatorId);
-    const assets = await MediaAsset.find({ _id: { $in: product.mediaAssetIds }, status: "ready" });
+    const [creator, assets, categories] = await Promise.all([
+      Creator.findById(product.creatorId),
+      MediaAsset.find({ _id: { $in: product.mediaAssetIds }, agencyId: product.agencyId, status: "ready" }),
+      Category.find({ _id: { $in: product.categoryIds ?? [] }, agencyId: product.agencyId }),
+    ]);
     if (assets.length !== product.mediaAssetIds.length) throw new Error("product_media_unavailable");
     return {
       productId: String(product._id), creatorId: String(product.creatorId), productTitle: product.title,
       creatorName: creator?.displayName ?? "Creator", contentVersion: product.contentVersion,
+      categoryIds: categories.map((category: any) => String(category._id)),
+      categoryNames: categories.map((category: any) => category.name),
       amountMinor: product.amountMinor, currency: product.currency,
       assets: assets.map((asset: any) => ({ assetId: String(asset._id), storageKey: asset.storageKey, fileName: asset.fileName, mimeType: asset.mimeType, telegramFileId: asset.telegramFileId })),
     };
   }));
-  const subtotalMinor = lines.reduce((total, line) => total + line.amountMinor, 0);
+  const subtotalMinor = sumMinor(lines.map((line) => line.amountMinor));
   const agent = await Agent.findById(agency.defaultAgentId);
   if (!agent?.active) throw new Error("agency_checkout_not_configured");
-  const order = await Order.create({
-    publicId: id("ord"), agencyId: agency._id, agentId: agent._id,
-    higherPaysWorkspaceId: agency.higherPaysWorkspaceId, higherPaysAgentId: agent.higherPaysAgentId,
-    telegramUserId, cartId: cart._id, lines, subtotalMinor,
-    totalMinor: subtotalMinor,
-    currency: cart.currency, returnNonce: crypto.randomBytes(18).toString("base64url"),
-    expiresAt: new Date(Date.now() + 30 * 60_000),
-  });
+  let order = existing;
+  if (!order) {
+    try {
+      order = await Order.create({
+        publicId: orderPublicId(String(cart._id)), checkoutIdempotencyKey: `cart:${cart._id}`,
+        agencyId: agency._id, agentId: agent._id,
+        higherPaysWorkspaceId: agency.higherPaysWorkspaceId, higherPaysAgentId: agent.higherPaysAgentId,
+        telegramUserId, cartId: cart._id, lines, subtotalMinor,
+        totalMinor: subtotalMinor,
+        currency: cart.currency, returnNonce: crypto.randomBytes(18).toString("base64url"),
+        expiresAt: new Date(Date.now() + 30 * 60_000),
+      });
+    } catch (error: unknown) {
+      if ((error as { code?: number }).code !== 11000) throw error;
+      order = await Order.findOne({ cartId: cart._id });
+      if (!order) throw error;
+    }
+  }
   try {
     const checkout = await createHigherPaysCheckout(order);
     if (checkout.marketplaceOrderId !== order.publicId || checkout.amountMinor !== order.subtotalMinor || checkout.currency !== order.currency) {
@@ -55,10 +71,13 @@ export async function createOrderForCart(telegramUserId: string) {
     order.higherPaysCheckoutUrl = checkout.checkoutUrl;
     await order.save();
   } catch (error) {
-    await Order.deleteOne({ _id: order._id });
     throw error;
   }
-  await PaymentAttempt.create({ orderId: order._id, provider: "higherpays", status: "created" });
+  await PaymentAttempt.updateOne(
+    { orderId: order._id, provider: "higherpays", status: "created" },
+    { $setOnInsert: { orderId: order._id, provider: "higherpays", status: "created" } },
+    { upsert: true },
+  );
   await Cart.updateOne({ _id: cart._id, status: "active" }, { $set: { status: "checked_out" } });
   return order;
 }
@@ -74,6 +93,18 @@ export async function applyHigherPaysEvent(input: HigherPaysLifecycleEvent | Hig
     const revoked = await Order.findOneAndUpdate({ _id: order._id, paymentStatus: "paid" }, { $set: { paymentStatus: status, fulfillmentStatus: "revoked" } }, { new: true });
     if (revoked) await Entitlement.updateMany({ orderId: order._id }, { $set: { status: "revoked" } });
     return revoked ?? order;
+  }
+  if (input.status === "expired" || input.status === "cancelled") {
+    await PaymentAttempt.findOneAndUpdate(
+      { providerEventId: "eventId" in input ? input.eventId : `reconcile:${input.providerTransactionId ?? "unknown"}` },
+      { $setOnInsert: { orderId: order._id, provider: "higherpays", providerEventId: "eventId" in input ? input.eventId : undefined, providerTransactionId: input.providerTransactionId }, $set: { status: "declined", grossMinor: input.amountMinor, rawPayload: input } },
+      { upsert: true },
+    );
+    return await Order.findOneAndUpdate(
+      { _id: order._id, paymentStatus: "pending" },
+      { $set: { paymentStatus: "failed", fulfillmentStatus: "not_ready" } },
+      { new: true },
+    ) ?? order;
   }
   if (input.status !== "approved" && eventType !== "payment.approved") return order;
   const updated = await Order.findOneAndUpdate(

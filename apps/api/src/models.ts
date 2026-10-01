@@ -43,6 +43,14 @@ const creatorSchema = new Schema({
   },
 }, timestamps);
 
+const categorySchema = new Schema({
+  agencyId: { type: Schema.Types.ObjectId, ref: "Agency", required: true, index: true },
+  name: { type: String, required: true, trim: true },
+  slug: { type: String, required: true, trim: true, lowercase: true },
+  status: { type: String, enum: ["active", "archived"], default: "active" },
+}, timestamps);
+categorySchema.index({ agencyId: 1, slug: 1 }, { unique: true });
+
 const mediaAssetSchema = new Schema({
   agencyId: { type: Schema.Types.ObjectId, ref: "Agency", required: true, index: true },
   storageKey: { type: String, required: true, unique: true },
@@ -61,7 +69,9 @@ const productSchema = new Schema({
   title: { type: String, required: true, trim: true },
   slug: { type: String, required: true, trim: true, lowercase: true },
   description: { type: String, default: "" },
+  categoryIds: [{ type: Schema.Types.ObjectId, ref: "Category" }],
   previewAssetId: { type: Schema.Types.ObjectId, ref: "MediaAsset" },
+  previewMode: { type: String, enum: ["none", "blurred", "visible"], default: "blurred" },
   mediaAssetIds: [{ type: Schema.Types.ObjectId, ref: "MediaAsset", required: true }],
   ...money,
   contentVersion: { type: Number, default: 1, min: 1 },
@@ -104,6 +114,8 @@ const orderLineSchema = new Schema({
   creatorId: { type: String, required: true },
   productTitle: { type: String, required: true },
   creatorName: { type: String, required: true },
+  categoryIds: { type: [String], default: [] },
+  categoryNames: { type: [String], default: [] },
   contentVersion: { type: Number, required: true },
   ...money,
   assets: { type: [assetSnapshot], default: [] },
@@ -116,6 +128,7 @@ const orderSchema = new Schema({
   higherPaysAgentId: { type: String, required: true },
   telegramUserId: { type: Schema.Types.ObjectId, ref: "TelegramUser", required: true, index: true },
   cartId: { type: Schema.Types.ObjectId, ref: "Cart", required: true, unique: true },
+  checkoutIdempotencyKey: { type: String, required: true, unique: true },
   lines: { type: [orderLineSchema], required: true, validate: [(value: unknown[]) => value.length > 0, "order_needs_lines"] },
   subtotalMinor: { type: Number, required: true },
   totalMinor: { type: Number, required: true },
@@ -186,6 +199,7 @@ const auditEventSchema = new Schema({
 export const Agency = models.Agency || model("Agency", agencySchema);
 export const Agent = models.Agent || model("Agent", agentSchema);
 export const Creator = models.Creator || model("Creator", creatorSchema);
+export const Category = models.Category || model("Category", categorySchema);
 export const MediaAsset = models.MediaAsset || model("MediaAsset", mediaAssetSchema);
 export const Product = models.Product || model("Product", productSchema);
 export const TelegramUser = models.TelegramUser || model("TelegramUser", telegramUserSchema);

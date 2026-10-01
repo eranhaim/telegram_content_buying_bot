@@ -3,14 +3,18 @@ import express, { type Request, type Response } from "express";
 import { z } from "zod";
 import { config } from "./config.js";
 import { issueAdminSession, issueTelegramSession, requireActor, verifyAdminPassword } from "./auth.js";
-import { Agency, Agent, AuditEvent, Cart, Creator, Delivery, Entitlement, MediaAsset, Order, Product, TelegramUser, WebhookEvent } from "./models.js";
+import { Agency, Agent, AuditEvent, Cart, Category, Creator, Delivery, Entitlement, MediaAsset, Order, Product, TelegramUser, WebhookEvent } from "./models.js";
 import { applyHigherPaysEvent, createOrderForCart } from "./orders.js";
 import { reconcileHigherPaysOrder, verifyHigherPaysEvent, type HigherPaysLifecycleEvent } from "./higherpays.js";
 import { objectKey, signedDownloadUrl, signedUploadUrl, storedObject } from "./storage.js";
 import { deliverEntitlements } from "./telegram.js";
 import { rateLimit } from "./rate-limit.js";
+import { previewIsConfigured } from "./commerce.js";
 
 const objectId = z.string().regex(/^[a-fA-F0-9]{24}$/);
+const objectIds = z.array(objectId).refine((ids) => new Set(ids).size === ids.length, "duplicate_ids");
+const nonEmptyObjectIds = z.array(objectId).min(1).refine((ids) => new Set(ids).size === ids.length, "duplicate_ids");
+const euroMinor = z.number().int().min(1).max(Number.MAX_SAFE_INTEGER);
 const app = express();
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
@@ -35,11 +39,13 @@ const actorUser = (req: Request) => req.actor?.kind === "telegram" ? req.actor.u
 const previewMimeType = z.enum(["image/jpeg", "image/png", "image/webp", "video/mp4", "video/webm", "video/quicktime"]);
 const deliveryMimeType = z.string().regex(/^(image|video|audio|application)\//);
 const maxAssetBytes = 50_000_000;
-const catalogProduct = async (product: any, previews: Map<string, any>) => {
-  const preview = product.previewAssetId ? previews.get(String(product.previewAssetId)) : undefined;
+const catalogProduct = async (product: any, previews: Map<string, any>, categories: Map<string, any>) => {
+  const preview = product.previewMode !== "none" && product.previewAssetId ? previews.get(String(product.previewAssetId)) : undefined;
   return {
     _id: String(product._id), title: product.title, description: product.description, amountMinor: product.amountMinor,
-    currency: product.currency, creatorId: String(product.creatorId), preview: preview ? {
+    currency: product.currency, creatorId: String(product.creatorId), previewMode: product.previewMode,
+    categories: (product.categoryIds ?? []).map((categoryId: unknown) => categories.get(String(categoryId))?.name).filter(Boolean),
+    preview: preview ? {
       mimeType: preview.mimeType, url: await signedDownloadUrl(preview.storageKey),
     } : null,
   };
@@ -103,16 +109,22 @@ app.get("/api/catalog/creators/:slug/products", requireActor("telegram"), asyncR
   if (!creator) return res.status(404).json({ error: "creator_not_found" });
   const products = await Product.find({ creatorId: creator._id, status: "published" }).select("-mediaAssetIds").sort({ createdAt: -1 });
   const previewIds = products.flatMap((product: any) => product.previewAssetId ? [product.previewAssetId] : []);
-  const previews = new Map((await MediaAsset.find({ _id: { $in: previewIds }, purpose: "preview", status: "ready" }))
-    .map((asset: any) => [String(asset._id), asset]));
-  res.json({ creator, items: await Promise.all(products.map((product) => catalogProduct(product, previews))) });
+  const categoryIds = products.flatMap((product: any) => product.categoryIds ?? []);
+  const [previewAssets, categoryRecords] = await Promise.all([
+    MediaAsset.find({ _id: { $in: previewIds }, purpose: "preview", status: "ready" }),
+    Category.find({ _id: { $in: categoryIds }, status: "active" }),
+  ]);
+  const previews = new Map(previewAssets.map((asset: any) => [String(asset._id), asset]));
+  const categories = new Map(categoryRecords.map((category: any) => [String(category._id), category]));
+  res.json({ creator, items: await Promise.all(products.map((product) => catalogProduct(product, previews, categories))) });
 }));
 app.get("/api/catalog/products/:id", requireActor("telegram"), asyncRoute(async (req, res) => {
   if (!objectId.safeParse(req.params.id).success) return res.status(404).json({ error: "product_not_found" });
   const product = await Product.findOne({ _id: req.params.id, status: "published" }).select("-mediaAssetIds");
   if (!product) return res.status(404).json({ error: "product_not_found" });
   const preview = product.previewAssetId ? await MediaAsset.findOne({ _id: product.previewAssetId, purpose: "preview", status: "ready" }) : null;
-  res.json(await catalogProduct(product, new Map(preview ? [[String(preview._id), preview]] : [])));
+  const categories = await Category.find({ _id: { $in: product.categoryIds ?? [] }, status: "active" });
+  res.json(await catalogProduct(product, new Map(preview ? [[String(preview._id), preview]] : []), new Map(categories.map((category: any) => [String(category._id), category]))));
 }));
 
 app.post("/api/me/age-confirmation", requireActor("telegram"), asyncRoute(async (req, res) => {
@@ -214,10 +226,41 @@ admin.post("/creators", asyncRoute(async (req, res) => {
   await audit(req, "creator.create", "creator", String(creator._id)); res.status(201).json(creator);
 }));
 admin.patch("/creators/:id", asyncRoute(async (req, res) => {
-  const body = z.object({ displayName: z.string().min(1).max(120).optional(), bio: z.string().max(4000).optional(), status: z.enum(["draft", "published", "archived"]).optional() }).parse(req.body);
+  const body = z.object({ displayName: z.string().min(1).max(120).optional(), slug: z.string().regex(/^[a-z0-9-]+$/).optional(), bio: z.string().max(4000).optional(), status: z.enum(["draft", "published", "archived"]).optional() }).parse(req.body);
   const creator = await Creator.findById(req.params.id); if (!creator) return res.status(404).json({ error: "creator_not_found" });
   if (body.status === "published" && (!creator.rightsAttestation?.creatorIsAdult || !creator.rightsAttestation?.distributionAuthorized)) return res.status(409).json({ error: "creator_attestation_required" });
   Object.assign(creator, body); await creator.save(); await audit(req, "creator.update", "creator", String(creator._id), body); res.json(creator);
+}));
+admin.delete("/creators/:id", asyncRoute(async (req, res) => {
+  const creator = await Creator.findByIdAndUpdate(req.params.id, { $set: { status: "archived" } }, { new: true });
+  if (!creator) return res.status(404).json({ error: "creator_not_found" });
+  await Product.updateMany({ creatorId: creator._id }, { $set: { status: "archived" } });
+  await audit(req, "creator.archive", "creator", String(creator._id));
+  res.status(204).end();
+}));
+admin.get("/categories", asyncRoute(async (req, res) => {
+  const agencyId = objectId.optional().parse(req.query.agencyId);
+  res.json({ items: await Category.find(agencyId ? { agencyId } : {}).sort({ name: 1 }) });
+}));
+admin.post("/categories", asyncRoute(async (req, res) => {
+  const body = z.object({ agencyId: objectId, name: z.string().min(1).max(80), slug: z.string().regex(/^[a-z0-9-]+$/) }).parse(req.body);
+  if (!await Agency.exists({ _id: body.agencyId, status: "active" })) return res.status(409).json({ error: "agency_not_found" });
+  const category = await Category.create(body);
+  await audit(req, "category.create", "category", String(category._id), body);
+  res.status(201).json(category);
+}));
+admin.patch("/categories/:id", asyncRoute(async (req, res) => {
+  const body = z.object({ name: z.string().min(1).max(80).optional(), slug: z.string().regex(/^[a-z0-9-]+$/).optional(), status: z.enum(["active", "archived"]).optional() }).parse(req.body);
+  const category = await Category.findByIdAndUpdate(req.params.id, { $set: body }, { new: true });
+  if (!category) return res.status(404).json({ error: "category_not_found" });
+  await audit(req, "category.update", "category", String(category._id), body);
+  res.json(category);
+}));
+admin.delete("/categories/:id", asyncRoute(async (req, res) => {
+  const category = await Category.findByIdAndUpdate(req.params.id, { $set: { status: "archived" } }, { new: true });
+  if (!category) return res.status(404).json({ error: "category_not_found" });
+  await audit(req, "category.archive", "category", String(category._id));
+  res.status(204).end();
 }));
 admin.post("/assets/upload-url", asyncRoute(async (req, res) => {
   const body = z.object({
@@ -243,27 +286,73 @@ admin.post("/assets/:id/complete", asyncRoute(async (req, res) => {
 admin.get("/assets", asyncRoute(async (_req, res) => res.json({ items: await MediaAsset.find().sort({ createdAt: -1 }) })));
 admin.get("/products", asyncRoute(async (_req, res) => res.json({ items: await Product.find().sort({ createdAt: -1 }) })));
 admin.post("/products", asyncRoute(async (req, res) => {
-  const body = z.object({ agencyId: objectId, creatorId: objectId, title: z.string().min(1).max(200), slug: z.string().regex(/^[a-z0-9-]+$/), description: z.string().max(4000).default(""), previewAssetId: objectId.optional(), mediaAssetIds: z.array(objectId).min(1), amountMinor: z.number().int().min(300), currency: z.enum(["EUR", "USD", "GBP"]) }).parse(req.body);
+  const body = z.object({
+    agencyId: objectId, creatorId: objectId, title: z.string().min(1).max(200), slug: z.string().regex(/^[a-z0-9-]+$/),
+    description: z.string().max(4000).default(""), categoryIds: objectIds,
+    previewAssetId: objectId.optional(), previewMode: z.enum(["none", "blurred", "visible"]).default("blurred"),
+    mediaAssetIds: nonEmptyObjectIds, amountMinor: euroMinor, currency: z.literal("EUR"),
+  }).parse(req.body);
   const creator = await Creator.findOne({ _id: body.creatorId, agencyId: body.agencyId });
   if (!creator) return res.status(409).json({ error: "creator_agency_mismatch" });
-  if (body.previewAssetId && !await MediaAsset.exists({ _id: body.previewAssetId, agencyId: body.agencyId, purpose: "preview", status: "ready" })) {
+  if (!previewIsConfigured(body.previewMode, body.previewAssetId) || (body.previewMode !== "none" && !await MediaAsset.exists({ _id: body.previewAssetId, agencyId: body.agencyId, purpose: "preview", status: "ready" }))) {
     return res.status(409).json({ error: "preview_not_ready" });
   }
+  const [mediaCount, categoryCount] = await Promise.all([
+    MediaAsset.countDocuments({ _id: { $in: body.mediaAssetIds }, agencyId: body.agencyId, purpose: "delivery", status: "ready" }),
+    Category.countDocuments({ _id: { $in: body.categoryIds }, agencyId: body.agencyId, status: "active" }),
+  ]);
+  if (mediaCount !== body.mediaAssetIds.length) return res.status(409).json({ error: "delivery_media_not_ready" });
+  if (categoryCount !== body.categoryIds.length) return res.status(409).json({ error: "category_not_available" });
   const product = await Product.create(body); await audit(req, "product.create", "product", String(product._id)); res.status(201).json(product);
 }));
 admin.patch("/products/:id", asyncRoute(async (req, res) => {
-  const body = z.object({ title: z.string().min(1).max(200).optional(), description: z.string().max(4000).optional(), amountMinor: z.number().int().min(300).optional(), status: z.enum(["draft", "review", "published", "archived"]).optional(), mediaAssetIds: z.array(objectId).min(1).optional() }).parse(req.body);
+  const body = z.object({
+    creatorId: objectId.optional(), title: z.string().min(1).max(200).optional(), slug: z.string().regex(/^[a-z0-9-]+$/).optional(),
+    description: z.string().max(4000).optional(), categoryIds: objectIds.optional(), previewAssetId: objectId.nullable().optional(),
+    previewMode: z.enum(["none", "blurred", "visible"]).optional(), amountMinor: euroMinor.optional(), status: z.enum(["draft", "review", "published", "archived"]).optional(),
+    mediaAssetIds: nonEmptyObjectIds.optional(), currency: z.literal("EUR").optional(),
+  }).parse(req.body);
   const product = await Product.findById(req.params.id); if (!product) return res.status(404).json({ error: "product_not_found" });
-  if (body.status === "published") {
-    const [creator, count] = await Promise.all([Creator.findById(product.creatorId), MediaAsset.countDocuments({ _id: { $in: body.mediaAssetIds ?? product.mediaAssetIds }, agencyId: product.agencyId, purpose: { $in: ["delivery", null] }, status: "ready" })]);
-    if (!creator?.rightsAttestation?.creatorIsAdult || !creator.rightsAttestation?.distributionAuthorized || count !== (body.mediaAssetIds ?? product.mediaAssetIds).length) return res.status(409).json({ error: "product_not_ready_for_publish" });
-  }
+  const creatorId = body.creatorId ?? String(product.creatorId);
+  const mediaAssetIds = body.mediaAssetIds ?? product.mediaAssetIds.map(String);
+  const categoryIds = body.categoryIds ?? (product.categoryIds ?? []).map(String);
+  const previewMode = body.previewMode ?? product.previewMode;
+  const selectedPreview = body.previewAssetId === null ? undefined : body.previewAssetId ?? product.previewAssetId;
+  const previewAssetId = selectedPreview ? String(selectedPreview) : undefined;
+  const [creator, mediaCount, categoryCount, previewReady] = await Promise.all([
+    Creator.findOne({ _id: creatorId, agencyId: product.agencyId }),
+    MediaAsset.countDocuments({ _id: { $in: mediaAssetIds }, agencyId: product.agencyId, purpose: "delivery", status: "ready" }),
+    Category.countDocuments({ _id: { $in: categoryIds }, agencyId: product.agencyId, status: "active" }),
+    previewMode === "none" ? true : Boolean(previewAssetId && await MediaAsset.exists({ _id: previewAssetId, agencyId: product.agencyId, purpose: "preview", status: "ready" })),
+  ]);
+  if (!creator) return res.status(409).json({ error: "creator_agency_mismatch" });
+  if (mediaCount !== mediaAssetIds.length) return res.status(409).json({ error: "delivery_media_not_ready" });
+  if (categoryCount !== categoryIds.length) return res.status(409).json({ error: "category_not_available" });
+  if (!previewIsConfigured(previewMode, previewAssetId) || !previewReady) return res.status(409).json({ error: "preview_not_ready" });
+  if (body.status === "published" && (!creator.rightsAttestation?.creatorIsAdult || !creator.rightsAttestation?.distributionAuthorized)) return res.status(409).json({ error: "product_not_ready_for_publish" });
   if (body.mediaAssetIds) product.contentVersion += 1;
-  Object.assign(product, body); await product.save(); await audit(req, "product.update", "product", String(product._id), body); res.json(product);
+  Object.assign(product, body, { previewAssetId }); await product.save(); await audit(req, "product.update", "product", String(product._id), body); res.json(product);
+}));
+admin.delete("/products/:id", asyncRoute(async (req, res) => {
+  const product = await Product.findByIdAndUpdate(req.params.id, { $set: { status: "archived" } }, { new: true });
+  if (!product) return res.status(404).json({ error: "product_not_found" });
+  await audit(req, "product.archive", "product", String(product._id));
+  res.status(204).end();
 }));
 admin.get("/analytics/products", asyncRoute(async (_req, res) => {
-  const items = await Order.aggregate([{ $match: { paymentStatus: "paid" } }, { $unwind: "$lines" }, { $group: { _id: "$lines.productId", purchases: { $sum: 1 }, grossMinor: { $sum: "$lines.amountMinor" } } }, { $sort: { purchases: -1 } }]);
-  res.json({ items });
+  const from = typeof _req.query.from === "string" ? new Date(_req.query.from) : undefined;
+  const to = typeof _req.query.to === "string" ? new Date(_req.query.to) : undefined;
+  if ((from && Number.isNaN(from.valueOf())) || (to && Number.isNaN(to.valueOf()))) return res.status(400).json({ error: "invalid_date_range" });
+  const dateMatch = from || to ? { paidAt: { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) } } : {};
+  const paid = [{ $match: { paymentStatus: "paid", ...dateMatch } }, { $unwind: "$lines" }];
+  const [products, creators, categories, days, statuses] = await Promise.all([
+    Order.aggregate([...paid, { $group: { _id: "$lines.productId", title: { $first: "$lines.productTitle" }, purchases: { $sum: 1 }, grossMinor: { $sum: "$lines.amountMinor" } } }, { $sort: { grossMinor: -1 } }]),
+    Order.aggregate([...paid, { $group: { _id: "$lines.creatorId", name: { $first: "$lines.creatorName" }, purchases: { $sum: 1 }, grossMinor: { $sum: "$lines.amountMinor" } } }, { $sort: { grossMinor: -1 } }]),
+    Order.aggregate([...paid, { $unwind: { path: "$lines.categoryNames", preserveNullAndEmptyArrays: true } }, { $group: { _id: { $ifNull: ["$lines.categoryNames", "Uncategorized"] }, purchases: { $sum: 1 }, grossMinor: { $sum: "$lines.amountMinor" } } }, { $sort: { grossMinor: -1 } }]),
+    Order.aggregate([...paid, { $group: { _id: { $dateToString: { date: "$paidAt", format: "%Y-%m-%d", timezone: "UTC" } }, purchases: { $sum: 1 }, grossMinor: { $sum: "$lines.amountMinor" } } }, { $sort: { _id: 1 } }]),
+    Order.aggregate([{ $match: dateMatch }, { $group: { _id: "$paymentStatus", orders: { $sum: 1 }, grossMinor: { $sum: "$totalMinor" } } }, { $sort: { _id: 1 } }]),
+  ]);
+  res.json({ products, creators, categories, days, statuses });
 }));
 admin.get("/deliveries/failures", asyncRoute(async (_req, res) => res.json({ items: await Delivery.find({ status: { $in: ["retry", "failed"] } }).sort({ updatedAt: 1 }) })));
 admin.post("/orders/:publicId/refund-record", asyncRoute(async (req, res) => {

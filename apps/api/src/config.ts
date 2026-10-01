@@ -11,7 +11,7 @@ const env = z.object({
   ADMIN_SHARED_PASSWORD: z.string().min(1).optional(),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_WEBHOOK_SECRET: z.string().min(16).default("development-webhook-secret"),
-  MARKETPLACE_CURRENCY: z.enum(["EUR", "USD", "GBP"]).default("EUR"),
+  MARKETPLACE_CURRENCY: z.literal("EUR").default("EUR"),
   S3_ENDPOINT: z.string().url().optional(),
   S3_PUBLIC_ENDPOINT: z.string().url().optional(),
   S3_REGION: z.string().default("us-east-1"),
