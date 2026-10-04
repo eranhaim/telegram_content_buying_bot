@@ -87,6 +87,8 @@ const telegramUserSchema = new Schema({
   username: String,
   firstName: String,
   lastName: String,
+  locale: { type: String, enum: ["en", "he", "fr", "es", "de", "pt-BR", "pt-PT"], default: "en" },
+  localeOverride: { type: String, enum: ["en", "he", "fr", "es", "de", "pt-BR", "pt-PT"] },
   ageConfirmedAt: Date,
   ageConfirmationVersion: String,
   deliveryBlockedAt: Date,

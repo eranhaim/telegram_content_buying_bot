@@ -1,5 +1,6 @@
 import { Input, Telegraf } from "telegraf";
 import { config } from "./config.js";
+import { customerBotCopy, customerLocale } from "./customer-locale.js";
 import { Delivery, Entitlement, MediaAsset, Order, TelegramUser } from "./models.js";
 import { signedDownloadUrl } from "./storage.js";
 
@@ -15,19 +16,30 @@ export async function startBot() {
     },
   });
   bot.start(async (ctx) => {
-    await TelegramUser.findOneAndUpdate(
+    const locale = customerLocale(ctx.from.language_code);
+    const user = await TelegramUser.findOneAndUpdate(
       { telegramId: String(ctx.from.id) },
-      { $set: { chatId: String(ctx.chat.id), username: ctx.from.username, firstName: ctx.from.first_name, lastName: ctx.from.last_name, lastSeenAt: new Date() } },
-      { upsert: true, setDefaultsOnInsert: true },
+      { $set: { chatId: String(ctx.chat.id), username: ctx.from.username, firstName: ctx.from.first_name, lastName: ctx.from.last_name, locale, lastSeenAt: new Date() } },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
     );
-    await ctx.reply("Welcome. Open the catalog to browse available content.", {
-      reply_markup: { inline_keyboard: [[{ text: "Open catalog", web_app: { url: config.PUBLIC_APP_URL } }]] },
+    const copy = customerBotCopy(user.localeOverride ?? user.locale);
+    await bot.telegram.setChatMenuButton({
+      chatId: ctx.chat.id,
+      menuButton: { type: "web_app", text: copy.openCatalog, web_app: { url: config.PUBLIC_APP_URL } },
+    });
+    await ctx.reply(copy.welcome, {
+      reply_markup: { inline_keyboard: [[{ text: copy.openCatalog, web_app: { url: config.PUBLIC_APP_URL } }]] },
     });
   });
   bot.command("purchases", async (ctx) => {
-    await ctx.reply(`Open your purchased content: ${new URL("/library", config.PUBLIC_APP_URL)}`);
+    const user = await TelegramUser.findOne({ telegramId: String(ctx.from.id) });
+    const copy = customerBotCopy(user?.localeOverride ?? user?.locale ?? customerLocale(ctx.from.language_code));
+    await ctx.reply(`${copy.purchases} ${new URL("/library", config.PUBLIC_APP_URL)}`);
   });
-  bot.command("support", (ctx) => ctx.reply("For payment or delivery support, contact the marketplace administrator."));
+  bot.command("support", async (ctx) => {
+    const user = await TelegramUser.findOne({ telegramId: String(ctx.from.id) });
+    await ctx.reply(customerBotCopy(user?.localeOverride ?? user?.locale ?? customerLocale(ctx.from.language_code)).support);
+  });
   await bot.launch();
 }
 
@@ -41,8 +53,14 @@ export async function deliverEntitlements(orderId: string) {
   if (!order || order.paymentStatus !== "paid") return;
   const user = await TelegramUser.findById(order.telegramUserId);
   if (!user?.chatId || user.deliveryBlockedAt) return;
+  const copy = customerBotCopy(user.localeOverride ?? user.locale);
   const entitlements = await Entitlement.find({ orderId: order._id, status: "active" });
   let failed = false;
+  try {
+    await bot.telegram.sendMessage(user.chatId, copy.deliveryStarting, { protect_content: true });
+  } catch {
+    // A status message must not prevent protected-file delivery.
+  }
   for (const entitlement of entitlements) {
     for (const snapshot of entitlement.assets) {
       const assetId = String(snapshot.assetId);

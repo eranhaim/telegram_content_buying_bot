@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
 import type { NextFunction, Request, Response } from "express";
 import { config } from "./config.js";
+import { customerLocale, type CustomerLocale } from "./customer-locale.js";
 import { TelegramUser } from "./models.js";
 
 export type AppActor = { kind: "telegram"; userId: string; telegramId: string } | { kind: "admin" };
@@ -29,20 +30,27 @@ export function verifyTelegramInitData(initData: string) {
   if (!Number.isFinite(authDate) || Date.now() / 1000 - authDate > 3600) throw new Error("expired_telegram_init_data");
   const rawUser = params.get("user");
   if (!rawUser) throw new Error("missing_telegram_user");
-  return JSON.parse(rawUser) as { id: number; username?: string; first_name?: string; last_name?: string };
+  return JSON.parse(rawUser) as { id: number; username?: string; first_name?: string; last_name?: string; language_code?: string };
 }
 
 export async function issueTelegramSession(initData: string) {
   const user = verifyTelegramInitData(initData);
+  const locale = customerLocale(user.language_code);
   const account = await TelegramUser.findOneAndUpdate(
     { telegramId: String(user.id) },
-    { $set: { username: user.username, firstName: user.first_name, lastName: user.last_name, lastSeenAt: new Date() } },
+    { $set: { username: user.username, firstName: user.first_name, lastName: user.last_name, locale, lastSeenAt: new Date() } },
     { upsert: true, new: true, setDefaultsOnInsert: true },
   );
   return {
     token: jwt.sign({ kind: "telegram", userId: String(account._id), telegramId: String(user.id) }, config.JWT_SECRET, { expiresIn: "15m" }),
     telegramId: String(user.id),
+    locale: account.localeOverride ?? account.locale,
   };
+}
+
+export async function saveCustomerLocale(userId: string, locale: CustomerLocale) {
+  await TelegramUser.updateOne({ _id: userId }, { $set: { localeOverride: locale } });
+  return locale;
 }
 
 export function verifyAdminPassword(password: string) {

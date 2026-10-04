@@ -65,3 +65,38 @@ fieldset input { width: auto; margin-inline-end: 7px; }
 [dir="rtl"] .blur-label { left: auto; right: 12px; }
 @media (min-width: 600px) { .creator-grid { grid-template-columns: repeat(2, 1fr); } .reel-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 599px) { .admin-header { display: block; } .language-switch { width: 100%; margin: 16px 0; } .admin-nav { flex-wrap: wrap; } .admin-nav .plain-button { margin-inline-start: 0; } .setup-grid { grid-template-columns: 1fr; } .dialog-backdrop { padding: 8px; } .dialog { border-radius: 14px; } }
+
+.customer-shell { min-height: var(--customer-viewport-height, 100dvh); overflow-x: clip; padding-bottom: calc(78px + env(safe-area-inset-bottom)); }
+.customer-header { width: min(760px, 100%); min-height: 52px; margin: 0 auto; padding: max(10px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left)); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.customer-brand { min-width: 0; color: #f9a9db; font-weight: 800; font-size: .67rem; letter-spacing: .1em; overflow-wrap: anywhere; }
+.customer-language { flex: 0 0 auto; }
+.customer-language select { width: auto; min-height: 36px; margin: 0; padding: 6px 30px 6px 9px; font-size: .8rem; }
+.customer-main { width: min(760px, 100%); min-height: calc(var(--customer-viewport-height, 100dvh) - 130px); margin: 0 auto; padding: 16px max(16px, env(safe-area-inset-right)) calc(104px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+.customer-main h1 { overflow-wrap: anywhere; }
+.customer-shell button, .customer-primary-link, .customer-guide-link { min-height: 44px; }
+.customer-guide-link, .customer-primary-link { display: flex; align-items: center; justify-content: center; border: 1px solid #754262; border-radius: 13px; padding: 11px 14px; margin: 12px 0 18px; background: #251623; text-align: center; }
+.customer-primary-link { background: linear-gradient(100deg, #ff6bca, #a77cff); border: 0; color: #1b0d1a; font-weight: 800; }
+.customer-nav { position: fixed; z-index: 5; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; width: 100%; margin: 0; padding: 7px max(8px, env(safe-area-inset-right)) calc(7px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); background: #180f18f2; border-top: 1px solid #512a48; backdrop-filter: blur(16px); }
+.customer-nav a { display: grid; place-items: center; min-width: 0; min-height: 44px; padding: 5px 4px; border-radius: 10px; color: #ffd5ef; font-size: clamp(.68rem, 3.4vw, .85rem); font-weight: 700; text-align: center; overflow-wrap: anywhere; }
+.customer-nav a:active { background: #4b2744; }
+.guide-steps { display: grid; gap: 12px; padding: 0; margin: 18px 0; list-style: none; counter-reset: guide; }
+.guide-steps li { min-width: 0; padding: 16px; background: #21151f; border: 1px solid #512a48; border-radius: 16px; }
+.guide-steps h2 { font-size: clamp(1rem, 5vw, 1.24rem); line-height: 1.2; overflow-wrap: anywhere; }
+.guide-steps p { margin: 0; color: #e0c8d9; }
+.back-link { display: inline-flex; align-items: center; min-height: 44px; margin: -7px 0 11px; }
+.cart-item, .purchase-item, .cart-summary { overflow-wrap: anywhere; }
+.cart-summary { position: sticky; bottom: calc(74px + env(safe-area-inset-bottom)); background: #2a1828ee; box-shadow: 0 -10px 30px #110d1499; }
+.ltr-value, .order-id { display: inline-block; unicode-bidi: isolate; font-variant-numeric: tabular-nums; }
+.order-id { color: #cbb8c7; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.customer-shell[dir="rtl"] { text-align: right; }
+.customer-shell[dir="rtl"] .notice { border-left: 0; border-right: 3px solid #ff7ed2; }
+.customer-shell[dir="rtl"] .blur-label { right: 12px; left: auto; }
+.customer-main .creator-grid, .customer-main .reel-grid { margin: 0; padding: 0; background: transparent; border: 0; border-radius: 0; }
+
+@media (min-width: 600px) {
+  .customer-header { padding-inline: 24px; }
+  .customer-main { padding-inline: 24px; }
+  .customer-nav { right: auto; left: 50%; width: min(560px, calc(100% - 32px)); bottom: 18px; transform: translateX(-50%); border: 1px solid #512a48; border-radius: 18px; box-shadow: 0 14px 40px #0008; }
+  .cart-summary { bottom: 88px; }
+}

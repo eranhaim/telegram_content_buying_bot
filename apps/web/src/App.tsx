@@ -2,10 +2,11 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { clearToken, Creator, euroToMinor, money, Product, request, setToken } from "./api";
 import { adminCopy, adminDirection, adminLanguage, type AdminLanguage } from "./admin-i18n";
+import { customerCopy, customerDirection, customerLocale, customerLocales, type CustomerLocale } from "./customer-i18n";
 
 declare global {
   interface Window {
-    Telegram?: { WebApp?: { initData?: string; ready(): void; expand(): void; openLink(url: string): void; close(): void } };
+    Telegram?: { WebApp?: { initData?: string; ready(): void; expand(): void; openLink(url: string): void; close(): void; viewportStableHeight?: number } };
   }
 }
 
@@ -39,83 +40,94 @@ function PlusCard({ label, onClick }: { label: string; onClick: () => void }) {
 
 function useTelegramSession() {
   const [ready, setReady] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(false);
+  const [locale, setLocale] = useState<CustomerLocale>("en");
   useEffect(() => {
     clearToken();
     const webApp = window.Telegram?.WebApp;
     webApp?.ready(); webApp?.expand();
+    document.documentElement.style.setProperty("--customer-viewport-height", `${webApp?.viewportStableHeight ?? window.innerHeight}px`);
     const initData = webApp?.initData;
     if (!initData) {
-      setError("Open the catalog using the Open catalog button in @OnlyContentMenuBot. Direct links do not include your Telegram identity.");
+      setError(true);
       return;
     }
     let active = true;
-    request<{ token: string }>("/auth/telegram", { method: "POST", body: JSON.stringify({ initData }) })
-      .then(({ token }) => { if (active) { setToken(token); setReady(true); } })
-      .catch(() => { if (active) setError("Telegram could not verify this Mini App session. Close this page and reopen the catalog from @OnlyContentMenuBot."); });
+    request<{ token: string; locale: CustomerLocale }>("/auth/telegram", { method: "POST", body: JSON.stringify({ initData }) })
+      .then(({ token, locale: nextLocale }) => { if (active) { setToken(token); setLocale(customerLocale(nextLocale)); setReady(true); } })
+      .catch(() => { if (active) setError(true); });
     return () => { active = false; };
   }, []);
-  return { ready, error };
+  return { ready, error, locale, setLocale };
 }
 
-function Catalog() {
+type CustomerText = typeof customerCopy.en;
+
+function CustomerShell({ locale, setLocale, children }: { locale: CustomerLocale; setLocale: (locale: CustomerLocale) => void; children: ReactNode }) {
+  const t = customerCopy[locale];
+  useEffect(() => {
+    document.documentElement.lang = locale;
+    document.documentElement.dir = customerDirection(locale);
+  }, [locale]);
+  const overrideLocale = async (value: string) => {
+    const nextLocale = customerLocale(value);
+    const result = await request<{ locale: CustomerLocale }>("/me/locale", { method: "PUT", body: JSON.stringify({ locale: nextLocale }) });
+    setLocale(customerLocale(result.locale));
+  };
+  return <div className="customer-shell" lang={locale} dir={customerDirection(locale)}>
+    <header className="customer-header"><span className="customer-brand">{t.privateMarketplace}</span><label className="customer-language"><span className="sr-only">{t.language}</span><select aria-label={t.language} value={locale} onChange={(event) => void overrideLocale(event.target.value)}>{customerLocales.map((value) => <option key={value} value={value}>{value}</option>)}</select></label></header>
+    {children}
+    <nav className="customer-nav" aria-label={t.privateMarketplace}><Link to="/">{t.discover}</Link><Link to="/guide">{t.guide}</Link><Link to="/cart">{t.cart}</Link><Link to="/library">{t.purchases}</Link></nav>
+  </div>;
+}
+
+function Catalog({ t }: { t: CustomerText }) {
   const [creators, setCreators] = useState<Creator[]>([]);
   useEffect(() => { void request<{ items: Creator[] }>("/catalog/creators").then((result) => setCreators(result.items)); }, []);
-  return <main>
-    <nav><Link to="/">Discover</Link><Link to="/guide">Guide</Link><Link to="/cart">Cart</Link><Link to="/library">Purchases</Link></nav>
-    <p className="eyebrow">PRIVATE CREATOR MARKETPLACE</p><h1>Discover creators</h1>
-    <p className="notice">18+ only. Preview clips are deliberately blurred. Purchased content is delivered privately in this Telegram chat after payment.</p>
-    <Link className="notice" to="/guide">New here? See what you can view and access.</Link>
-    <CreatorGrid creators={creators.map((creator) => ({ key: creator._id, name: creator.displayName, bio: creator.bio || "Explore this creator’s private collection.", to: `/creators/${creator.slug}` }))} empty={<article className="creator-card creator-empty-card"><div className="creator-cover"><span>CATALOG</span></div><h2>New creators coming soon</h2><p>The private catalog is ready. Check back for new verified creator storefronts.</p></article>} />
+  return <main className="customer-main">
+    <p className="eyebrow">{t.privateMarketplace}</p><h1>{t.discoverTitle}</h1>
+    <p className="notice">{t.adultNotice}</p>
+    <Link className="customer-guide-link" to="/guide">{t.guideLink}</Link>
+    <CreatorGrid creators={creators.map((creator) => ({ key: creator._id, name: creator.displayName, bio: creator.bio || t.defaultBio, to: `/creators/${creator.slug}` }))} empty={<article className="creator-card creator-empty-card"><div className="creator-cover"><span>18+</span></div><h2>{t.emptyCatalogTitle}</h2><p>{t.emptyCatalogText}</p></article>} />
   </main>;
 }
 
-function Guide() {
-  return <main>
-    <nav><Link to="/">Discover</Link><Link to="/cart">Cart</Link><Link to="/library">Purchases</Link></nav>
-    <p className="eyebrow">NEW USER GUIDE</p><h1>How this marketplace works</h1>
-    <section className="notice">
-      <h2>1. Discover available creators</h2>
-      <p>Start in Discover to browse the published creator storefronts currently available to you.</p>
-      <h2>2. View previews and collections</h2>
-      <p>Open a creator to see their available private collections. Preview images and clips are blurred; full paid content is not streamed in the Mini App.</p>
-      <h2>3. Add content to your cart</h2>
-      <p>Choose the collections you want, review their price in Cart, and continue to secure checkout.</p>
-      <h2>4. Access your purchases in Telegram</h2>
-      <p>After confirmed payment, purchased files are delivered privately by @OnlyContentMenuBot. Purchases shows your order and delivery status.</p>
-    </section>
-    <Link to="/">Start discovering creators</Link>
+function Guide({ t }: { t: CustomerText }) {
+  return <main className="customer-main">
+    <p className="eyebrow">{t.guide}</p><h1>{t.guideTitle}</h1>
+    <ol className="guide-steps">{t.guideSteps.map(([title, text]) => <li key={title}><h2>{title}</h2><p>{text}</p></li>)}</ol>
+    <Link className="customer-primary-link" to="/">{t.startDiscovering}</Link>
   </main>;
 }
 
 type GridContentItem = { _id: string; title: string; preview?: Product["preview"]; previewMode?: Product["previewMode"]; description?: string; amountMinor?: number; currency?: string; status?: string };
-function ContentGrid({ items, add, empty, renderCopy, addCard, className = "" }: { items: GridContentItem[]; add?: (id: string) => void; empty: ReactNode; renderCopy?: (item: GridContentItem) => ReactNode; addCard?: ReactNode; className?: string }) {
+function ContentGrid({ items, add, empty, renderCopy, addCard, className = "", t, locale }: { items: GridContentItem[]; add?: (id: string) => void; empty: ReactNode; renderCopy?: (item: GridContentItem) => ReactNode; addCard?: ReactNode; className?: string; t?: CustomerText; locale?: CustomerLocale }) {
   return <section className={`reel-grid ${className}`}>{items.map((item) => <article className="reel-card" key={item._id}>
-    <div className={`reel-preview preview-${item.previewMode ?? "blurred"}`}>{item.preview?.mimeType.startsWith("video/") ? <video src={item.preview.url} muted loop autoPlay playsInline preload="metadata" /> : item.preview ? <img src={item.preview.url} alt="" /> : <div className="preview-unavailable">Preview unavailable</div>}{item.previewMode === "blurred" && <span className="blur-label">BLURRED PREVIEW</span>}</div>
-    <div className="reel-copy">{renderCopy ? renderCopy(item) : <><h2>{item.title}</h2><p>{item.description}</p><strong>{money(item.amountMinor!, item.currency!)}</strong><button onClick={() => add?.(item._id)}>Add to cart</button></>}</div>
+    <div className={`reel-preview preview-${item.previewMode ?? "blurred"}`}>{item.preview?.mimeType.startsWith("video/") ? <video src={item.preview.url} muted loop autoPlay playsInline preload="metadata" /> : item.preview ? <img src={item.preview.url} alt="" /> : <div className="preview-unavailable">{t?.previewUnavailable ?? "Preview unavailable"}</div>}{item.previewMode === "blurred" && <span className="blur-label">{t?.blurredPreview ?? "BLURRED PREVIEW"}</span>}</div>
+    <div className="reel-copy">{renderCopy ? renderCopy(item) : <><h2>{item.title}</h2><p>{item.description}</p><strong className="ltr-value" dir="ltr">{money(item.amountMinor!, item.currency!, locale)}</strong><button onClick={() => add?.(item._id)}>{t?.addToCart ?? "Add to cart"}</button></>}</div>
   </article>)}{addCard}{!items.length && empty}</section>;
 }
 
-function CreatorPage() {
+function CreatorPage({ t, locale }: { t: CustomerText; locale: CustomerLocale }) {
   const { slug } = useParams();
   const [items, setItems] = useState<Product[]>([]);
   const [creator, setCreator] = useState<Creator | null>(null);
   const [notice, setNotice] = useState("");
-  useEffect(() => { void request<{ creator: Creator; items: Product[] }>(`/catalog/creators/${slug}/products`).then((result) => { setCreator(result.creator); setItems(result.items); }).catch(() => setNotice("This creator is unavailable right now.")); }, [slug]);
+  useEffect(() => { void request<{ creator: Creator; items: Product[] }>(`/catalog/creators/${slug}/products`).then((result) => { setCreator(result.creator); setItems(result.items); }).catch(() => setNotice(t.creatorUnavailable)); }, [slug, t.creatorUnavailable]);
   const add = async (productId: string) => {
-    try { await request("/cart/items", { method: "POST", body: JSON.stringify({ productId }) }); setNotice("Added to cart."); }
-    catch (error) { setNotice(error instanceof Error ? error.message : "Could not update your cart."); }
+    try { await request("/cart/items", { method: "POST", body: JSON.stringify({ productId }) }); setNotice(t.addedToCart); }
+    catch { setNotice(t.cartUpdateFailed); }
   };
-  return <main>
-    <nav><Link to="/">← Discover</Link><Link to="/cart">Cart</Link></nav>
-    <p className="eyebrow">CREATOR STOREFRONT</p><h1>{creator?.displayName ?? "Creator"}</h1><p>{creator?.bio}</p>
+  return <main className="customer-main">
+    <Link className="back-link" to="/">{t.backDiscover}</Link>
+    <p className="eyebrow">{t.creatorStorefront}</p><h1>{creator?.displayName ?? t.discover}</h1><p>{creator?.bio}</p>
     {notice && <p role="status" className="notice">{notice}</p>}
-    <ContentGrid items={items} add={add} empty={<p className="empty">No content is available from this creator yet.</p>} />
+    <ContentGrid items={items} add={add} t={t} locale={locale} empty={<p className="empty">{t.noContent}</p>} />
   </main>;
 }
 
 type Cart = { _id?: string; currency: string; items: { productId: string; titleSnapshot: string; creatorNameSnapshot: string; priceMinorSnapshot: number }[] };
-function CartPage() {
+function CartPage({ t, locale }: { t: CustomerText; locale: CustomerLocale }) {
   const [cart, setCart] = useState<Cart | null>(null);
   const navigate = useNavigate();
   const load = () => void request<Cart>("/cart").then(setCart);
@@ -126,28 +138,30 @@ function CartPage() {
       await request("/me/age-confirmation", { method: "POST", body: JSON.stringify({ accepted: true, version: "2026-09" }) });
       const result = await request<{ checkoutUrl: string }>("/checkout", { method: "POST" });
       if (window.Telegram?.WebApp) window.Telegram.WebApp.openLink(result.checkoutUrl); else window.location.assign(result.checkoutUrl);
-    } catch (error) { alert(error instanceof Error ? error.message : "Checkout unavailable"); }
+    } catch { alert(t.checkoutUnavailable); }
   };
   const total = cart?.items.reduce((sum, item) => sum + item.priceMinorSnapshot, 0) ?? 0;
-  return <main><nav><Link to="/">Catalog</Link><Link to="/library">Purchases</Link></nav><h1>Your cart</h1>{cart?.items.map((item) => <article key={item.productId}><h2>{item.titleSnapshot}</h2><p>{item.creatorNameSnapshot} · {money(item.priceMinorSnapshot, cart.currency)}</p><button onClick={() => void remove(item.productId)}>Remove</button></article>)}<h2>Total: {money(total, cart?.currency ?? "EUR")}</h2><p>By checking out you confirm that you are legally an adult in your jurisdiction.</p><button disabled={!total} onClick={() => void checkout()}>Continue to secure checkout</button><button onClick={() => navigate("/")}>Continue browsing</button></main>;
+  return <main className="customer-main"><h1>{t.cartTitle}</h1>{cart?.items.map((item) => <article className="cart-item" key={item.productId}><h2>{item.titleSnapshot}</h2><p>{item.creatorNameSnapshot} · <span className="ltr-value" dir="ltr">{money(item.priceMinorSnapshot, cart.currency, locale)}</span></p><button onClick={() => void remove(item.productId)}>{t.remove}</button></article>)}{cart && !cart.items.length && <p className="empty">{t.emptyCart}</p>}<section className="cart-summary"><h2>{t.total}: <span className="ltr-value" dir="ltr">{money(total, cart?.currency ?? "EUR", locale)}</span></h2><p>{t.adultCheckout}</p><button disabled={!total} onClick={() => void checkout()}>{t.secureCheckout}</button><button className="plain-button" onClick={() => navigate("/")}>{t.continueBrowsing}</button></section></main>;
 }
 
-function Library() {
+function Library({ t }: { t: CustomerText }) {
   const [orders, setOrders] = useState<{ publicId: string; fulfillmentStatus: string; lines: { productTitle: string }[] }[]>([]);
   useEffect(() => { void request<{ items: typeof orders }>("/purchases").then((result) => setOrders(result.items)); }, []);
-  return <main><nav><Link to="/">Catalog</Link><Link to="/cart">Cart</Link></nav><h1>Your purchases</h1>{orders.map((order) => <article key={order.publicId}><h2>{order.lines.map((line) => line.productTitle).join(", ")}</h2><p>Delivery: {order.fulfillmentStatus}</p><button onClick={() => void request(`/purchases/${order.publicId}/retry-delivery`, { method: "POST" })}>Retry delivery</button></article>)}</main>;
+  const [notice, setNotice] = useState("");
+  const retry = async (publicId: string) => { await request(`/purchases/${publicId}/retry-delivery`, { method: "POST" }); setNotice(t.retryQueued); };
+  return <main className="customer-main"><h1>{t.purchasesTitle}</h1>{notice && <p className="notice" role="status">{notice}</p>}{!orders.length && <p className="empty">{t.noPurchases}</p>}{orders.map((order) => <article className="purchase-item" key={order.publicId}><h2>{order.lines.map((line) => line.productTitle).join(", ")}</h2><p>{t.delivery}: {t.status[order.fulfillmentStatus] ?? order.fulfillmentStatus}</p><p className="order-id" dir="ltr">{order.publicId}</p><button onClick={() => void retry(order.publicId)}>{t.retryDelivery}</button></article>)}</main>;
 }
 
-function PaymentComplete() {
+function PaymentComplete({ t }: { t: CustomerText }) {
   const params = new URLSearchParams(location.search);
-  const [status, setStatus] = useState("Checking your payment…");
+  const [status, setStatus] = useState(t.paymentChecking);
   useEffect(() => {
     const order = params.get("order"); const state = params.get("state");
     if (!order || !state) return;
-    const check = () => void request<{ paymentStatus: string }>(`/payment-return/${order}?state=${encodeURIComponent(state)}`).then((result) => setStatus(result.paymentStatus === "paid" ? "Payment confirmed. Your content is being delivered in Telegram." : "Payment is still processing.")).catch(() => setStatus("Return to Telegram and check Purchases shortly."));
+    const check = () => void request<{ paymentStatus: string }>(`/payment-return/${order}?state=${encodeURIComponent(state)}`).then((result) => setStatus(result.paymentStatus === "paid" ? t.paymentConfirmed : t.paymentProcessing)).catch(() => setStatus(t.paymentReturn));
     check(); const timer = setInterval(check, 5000); return () => clearInterval(timer);
   }, []);
-  return <main><h1>{status}</h1><Link to="/library">Open purchases</Link></main>;
+  return <main className="customer-main"><h1>{status}</h1><Link className="customer-primary-link" to="/library">{t.purchases}</Link></main>;
 }
 
 function Dialog({ title, close, children }: { title: string; close: () => void; children: ReactNode }) {
@@ -265,22 +279,23 @@ function AdminSetup({ agencies, agents, categories, t, submit, setDefaultAgent, 
   return <section id="setup" className="setup-panel"><h2>{t.setup}</h2><p className="help">{t.setupEmpty}</p><article className="warning"><h3>{t.attributionTitle}</h3><p>{t.attributionHelp}</p><p>{t.secretWarning}</p></article><div className="setup-grid"><section><h3>{t.agency}</h3><form onSubmit={(event) => void submit(event, "/admin/agencies", (data) => ({ name: data.get("name"), higherPaysWorkspaceId: data.get("workspace") }))}><label>{t.agencyName}<input name="name" required /></label><label>{t.workspaceId}<input name="workspace" required /></label><p className="help">{t.workspaceHelp}</p><button>{t.createAgency}</button></form>{agencies.length ? agencies.map((agency) => <p key={agency._id}>{agency.name}</p>) : <p className="empty">{t.agencyEmpty}</p>}</section><section><h3>{t.agent}</h3><form onSubmit={(event) => void submit(event, "/admin/agents", (data) => ({ agencyId: data.get("agencyId"), name: data.get("name"), higherPaysAgentId: data.get("higherPaysAgentId") }))}><label>{t.agency}<select name="agencyId" required><option value="">{t.chooseAgency}</option>{agencies.map((agency) => <option value={agency._id} key={agency._id}>{agency.name}</option>)}</select></label><label>{t.agentName}<input name="name" required /></label><label>{t.agentId}<input name="higherPaysAgentId" required /></label><p className="help">{t.agentHelp}</p><button>{t.createAgent}</button></form>{agents.length ? agents.map((agent) => <p key={agent._id}>{agent.name} <button type="button" onClick={() => void setDefaultAgent(agent)}>{t.setCheckoutAgent}</button></p>) : <p className="empty">{t.agentEmpty}</p>}</section><section><h3>Categories</h3><form onSubmit={(event) => void submit(event, "/admin/categories", (data) => ({ agencyId: data.get("agencyId"), name: data.get("name"), slug: data.get("slug") }))}><label>{t.agency}<select name="agencyId" required><option value="">{t.chooseAgency}</option>{agencies.map((agency) => <option value={agency._id} key={agency._id}>{agency.name}</option>)}</select></label><label>Name<input name="name" required /></label><label>Slug<input name="slug" pattern="[a-z0-9-]+" required /></label><button>Create category</button></form>{categories.map((category) => <p key={category._id}>{category.name} ({category.status}) {category.status === "active" && <button type="button" className="plain-button" onClick={() => void archiveCategory(category._id)}>Archive</button>}</p>)}</section></div></section>;
 }
 
-function AgeGate({ children }: { children: ReactNode }) {
+function AgeGate({ children, t }: { children: ReactNode; t: CustomerText }) {
   const [accepted, setAccepted] = useState(sessionStorage.getItem("marketplace_age_confirmed") === "yes");
   const [error, setError] = useState("");
   const confirm = async () => {
     try { await request("/me/age-confirmation", { method: "POST", body: JSON.stringify({ accepted: true, version: "2026-09" }) }); sessionStorage.setItem("marketplace_age_confirmed", "yes"); setAccepted(true); }
-    catch { setError("We could not record your age confirmation. Reopen the catalog from Telegram and try again."); }
+    catch { setError(t.ageError); }
   };
   if (accepted) return <>{children}</>;
-  return <main className="age-gate"><p className="eyebrow">PRIVATE MARKETPLACE</p><h1>Adults only</h1><p>This catalog contains adult content. You must be at least 18 years old and legally permitted to view it in your location.</p>{error && <p role="alert">{error}</p>}<button onClick={() => void confirm()}>I am 18 or older</button><p className="fine-print">Paid content is never streamed in this Mini App. It is delivered privately by @OnlyContentMenuBot after a confirmed payment.</p></main>;
+  return <main className="age-gate customer-main"><p className="eyebrow">{t.privateMarketplace}</p><h1>{t.adultsOnly}</h1><p>{t.ageText}</p>{error && <p role="alert" className="notice">{error}</p>}<button onClick={() => void confirm()}>{t.ageConfirm}</button><p className="fine-print">{t.privacy}</p></main>;
 }
 
 function Marketplace() {
-  const { ready, error } = useTelegramSession();
-  if (error) return <main><h1>Private Marketplace</h1><p>{error}</p></main>;
-  if (!ready) return <main><h1>Private Marketplace</h1><p>Verifying your Telegram session…</p></main>;
-  return <AgeGate><Routes><Route path="/" element={<Catalog />} /><Route path="/guide" element={<Guide />} /><Route path="/creators/:slug" element={<CreatorPage />} /><Route path="/cart" element={<CartPage />} /><Route path="/library" element={<Library />} /><Route path="/payment-complete" element={<PaymentComplete />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes></AgeGate>;
+  const { ready, error, locale, setLocale } = useTelegramSession();
+  const t = customerCopy[locale];
+  if (error) return <main className="customer-main"><h1>{t.privateMarketplace}</h1><p>{t.sessionError}</p></main>;
+  if (!ready) return <main className="customer-main"><h1>{t.privateMarketplace}</h1><p>{t.sessionVerifying}</p></main>;
+  return <CustomerShell locale={locale} setLocale={setLocale}><AgeGate t={t}><Routes><Route path="/" element={<Catalog t={t} />} /><Route path="/guide" element={<Guide t={t} />} /><Route path="/creators/:slug" element={<CreatorPage t={t} locale={locale} />} /><Route path="/cart" element={<CartPage t={t} locale={locale} />} /><Route path="/library" element={<Library t={t} />} /><Route path="/payment-complete" element={<PaymentComplete t={t} />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes></AgeGate></CustomerShell>;
 }
 
 export function App() {

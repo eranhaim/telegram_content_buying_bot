@@ -2,7 +2,8 @@ import cors from "cors";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
 import { config } from "./config.js";
-import { issueAdminSession, issueTelegramSession, requireActor, verifyAdminPassword } from "./auth.js";
+import { issueAdminSession, issueTelegramSession, requireActor, saveCustomerLocale, verifyAdminPassword } from "./auth.js";
+import { customerLocales } from "./customer-locale.js";
 import { Agency, Agent, AuditEvent, Cart, Category, Creator, Delivery, Entitlement, MediaAsset, Order, Product, TelegramUser, WebhookEvent } from "./models.js";
 import { applyHigherPaysEvent, createOrderForCart } from "./orders.js";
 import { reconcileHigherPaysOrder, verifyHigherPaysEvent, type HigherPaysLifecycleEvent } from "./higherpays.js";
@@ -131,6 +132,10 @@ app.post("/api/me/age-confirmation", requireActor("telegram"), asyncRoute(async 
   const body = z.object({ accepted: z.literal(true), version: z.string().min(1).max(32) }).parse(req.body);
   await TelegramUser.updateOne({ _id: actorUser(req) }, { $set: { ageConfirmedAt: new Date(), ageConfirmationVersion: body.version } });
   res.status(204).end();
+}));
+app.put("/api/me/locale", requireActor("telegram"), asyncRoute(async (req, res) => {
+  const body = z.object({ locale: z.enum(customerLocales) }).strict().parse(req.body);
+  res.json({ locale: await saveCustomerLocale(actorUser(req)!, body.locale) });
 }));
 app.get("/api/cart", requireActor("telegram"), asyncRoute(async (req, res) => {
   const userId = actorUser(req)!;

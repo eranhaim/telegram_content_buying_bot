@@ -18,7 +18,7 @@ export async function request<T>(path: string, init: RequestInit = {}) {
   if (!response.ok) throw new Error((await response.json().catch(() => ({})) as { error?: string }).error ?? "request_failed");
   return response.status === 204 ? undefined as T : response.json() as Promise<T>;
 }
-export const money = (minor: number, currency: string) => new Intl.NumberFormat(undefined, { style: "currency", currency }).format(minor / 100);
+export const money = (minor: number, currency: string, locale?: string) => new Intl.NumberFormat(locale, { style: "currency", currency }).format(minor / 100);
 
 export function euroToMinor(value: FormDataEntryValue | null) {
   const text = String(value ?? "").trim();
