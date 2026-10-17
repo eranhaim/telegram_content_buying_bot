@@ -33,6 +33,12 @@ const creatorSchema = new Schema({
   slug: { type: String, required: true, lowercase: true, trim: true, unique: true },
   bio: { type: String, default: "" },
   avatarAssetId: String,
+  // Links to the real HigherPays records; the creator here is a placeholder shell.
+  higherPaysWorkspaceId: String,
+  higherPaysAgentId: String,
+  higherPaysAgentName: String,
+  higherPaysAccountId: String,
+  higherPaysAccountName: String,
   status: { type: String, enum: ["draft", "published", "archived"], default: "draft" },
   rightsAttestation: {
     affirmedBy: String,
@@ -128,6 +134,7 @@ const orderSchema = new Schema({
   agentId: { type: Schema.Types.ObjectId, ref: "Agent", required: true, index: true },
   higherPaysWorkspaceId: { type: String, required: true },
   higherPaysAgentId: { type: String, required: true },
+  higherPaysAccountId: String,
   telegramUserId: { type: Schema.Types.ObjectId, ref: "TelegramUser", required: true, index: true },
   cartId: { type: Schema.Types.ObjectId, ref: "Cart", required: true, unique: true },
   checkoutIdempotencyKey: { type: String, required: true, unique: true },

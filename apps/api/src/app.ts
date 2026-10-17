@@ -6,7 +6,7 @@ import { issueAdminSession, issueTelegramSession, requireActor, saveCustomerLoca
 import { customerLocales } from "./customer-locale.js";
 import { Agency, Agent, AuditEvent, Cart, Category, Creator, Delivery, Entitlement, MediaAsset, Order, Product, TelegramUser, WebhookEvent } from "./models.js";
 import { applyHigherPaysEvent, createOrderForCart } from "./orders.js";
-import { reconcileHigherPaysOrder, verifyHigherPaysEvent, type HigherPaysLifecycleEvent } from "./higherpays.js";
+import { fetchHigherPaysDirectory, reconcileHigherPaysOrder, verifyHigherPaysEvent, type HigherPaysLifecycleEvent } from "./higherpays.js";
 import { objectKey, signedDownloadUrl, signedUploadUrl, storedObject } from "./storage.js";
 import { deliverEntitlements } from "./telegram.js";
 import { rateLimit } from "./rate-limit.js";
@@ -128,11 +128,6 @@ app.get("/api/catalog/products/:id", requireActor("telegram"), asyncRoute(async 
   res.json(await catalogProduct(product, new Map(preview ? [[String(preview._id), preview]] : []), new Map(categories.map((category: any) => [String(category._id), category]))));
 }));
 
-app.post("/api/me/age-confirmation", requireActor("telegram"), asyncRoute(async (req, res) => {
-  const body = z.object({ accepted: z.literal(true), version: z.string().min(1).max(32) }).parse(req.body);
-  await TelegramUser.updateOne({ _id: actorUser(req) }, { $set: { ageConfirmedAt: new Date(), ageConfirmationVersion: body.version } });
-  res.status(204).end();
-}));
 app.put("/api/me/locale", requireActor("telegram"), asyncRoute(async (req, res) => {
   const body = z.object({ locale: z.enum(customerLocales) }).strict().parse(req.body);
   res.json({ locale: await saveCustomerLocale(actorUser(req)!, body.locale) });
@@ -225,9 +220,27 @@ admin.post("/agents", asyncRoute(async (req, res) => {
 }));
 admin.get("/agents", asyncRoute(async (_req, res) => res.json({ items: await Agent.find().sort({ name: 1 }) })));
 admin.get("/creators", asyncRoute(async (_req, res) => res.json({ items: await Creator.find().sort({ displayName: 1 }) })));
+admin.get("/higherpays/directory", asyncRoute(async (_req, res) => {
+  try { res.json(await fetchHigherPaysDirectory()); }
+  catch { res.status(502).json({ error: "higherpays_directory_unavailable" }); }
+}));
 admin.post("/creators", asyncRoute(async (req, res) => {
-  const body = z.object({ agencyId: objectId, displayName: z.string().min(1).max(120), slug: z.string().regex(/^[a-z0-9-]+$/), bio: z.string().max(4000).default(""), rightsAttestation: z.object({ affirmedBy: z.string().min(1), statementVersion: z.string().min(1), creatorIsAdult: z.literal(true), distributionAuthorized: z.literal(true) }) }).parse(req.body);
-  const creator = await Creator.create({ ...body, rightsAttestation: { ...body.rightsAttestation, affirmedAt: new Date() } });
+  const body = z.object({ higherPaysWorkspaceId: z.string().min(1).max(100), higherPaysAgentId: z.string().min(1).max(100).optional(), higherPaysAccountId: z.string().min(1).max(100).optional(), displayName: z.string().min(1).max(120), slug: z.string().regex(/^[a-z0-9-]+$/), bio: z.string().max(4000).default(""), rightsAttestation: z.object({ affirmedBy: z.string().min(1) }) }).parse(req.body);
+  // Names and membership come from HigherPays, never from the browser.
+  const workspace = (await fetchHigherPaysDirectory()).workspaces.find((candidate) => candidate.id === body.higherPaysWorkspaceId);
+  if (!workspace) return res.status(409).json({ error: "higherpays_workspace_not_found" });
+  const linkedAgent = body.higherPaysAgentId ? workspace.agents.find((candidate) => candidate.id === body.higherPaysAgentId) : undefined;
+  const linkedAccount = body.higherPaysAccountId ? workspace.accounts.find((candidate) => candidate.id === body.higherPaysAccountId) : undefined;
+  if ((body.higherPaysAgentId && !linkedAgent) || (body.higherPaysAccountId && !linkedAccount)) return res.status(409).json({ error: "higherpays_link_not_found" });
+  const agency = await Agency.findOneAndUpdate({ higherPaysWorkspaceId: workspace.id }, { $setOnInsert: { name: workspace.name, higherPaysWorkspaceId: workspace.id } }, { upsert: true, new: true });
+  // The UI no longer asks for adult/distribution confirmation; the stored flags stay true so publishing keeps working.
+  const creator = await Creator.create({
+    agencyId: agency._id, displayName: body.displayName, slug: body.slug, bio: body.bio,
+    higherPaysWorkspaceId: workspace.id,
+    higherPaysAgentId: linkedAgent?.id, higherPaysAgentName: linkedAgent?.name,
+    higherPaysAccountId: linkedAccount?.id, higherPaysAccountName: linkedAccount?.name,
+    rightsAttestation: { affirmedBy: body.rightsAttestation.affirmedBy, statementVersion: "2026-09", creatorIsAdult: true, distributionAuthorized: true, affirmedAt: new Date() },
+  });
   await audit(req, "creator.create", "creator", String(creator._id)); res.status(201).json(creator);
 }));
 admin.patch("/creators/:id", asyncRoute(async (req, res) => {

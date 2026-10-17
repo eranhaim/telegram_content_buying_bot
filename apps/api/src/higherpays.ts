@@ -24,7 +24,7 @@ function integrationUrl(path: string) {
   return new URL(path.replace(/^\//, ""), base);
 }
 
-async function request(path: string, init: RequestInit) {
+async function request<T>(path: string, init: RequestInit) {
   const response = await fetch(integrationUrl(path), {
     ...init,
     headers: {
@@ -35,7 +35,18 @@ async function request(path: string, init: RequestInit) {
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) throw new Error(`higherpays_${response.status}`);
-  return response.json() as Promise<HigherPaysOrder>;
+  return response.json() as Promise<T>;
+}
+
+export type HigherPaysWorkspace = {
+  id: string;
+  name: string;
+  agents: { id: string; name: string }[];
+  accounts: { id: string; name: string }[];
+};
+
+export function fetchHigherPaysDirectory() {
+  return request<{ workspaces: HigherPaysWorkspace[] }>("/integrations/marketplace/directory", { method: "GET" });
 }
 
 export function signHigherPaysEvent(timestamp: string, eventId: string, rawBody: string) {
@@ -54,7 +65,7 @@ export function verifyHigherPaysEvent(timestamp: string | undefined, eventId: st
 }
 
 export function createHigherPaysCheckout(order: any) {
-  return request("/integrations/marketplace/orders", {
+  return request<HigherPaysOrder>("/integrations/marketplace/orders", {
     method: "POST",
     body: JSON.stringify({
       marketplaceOrderId: order.publicId,
@@ -66,5 +77,5 @@ export function createHigherPaysCheckout(order: any) {
 }
 
 export function reconcileHigherPaysOrder(publicId: string) {
-  return request(`/integrations/marketplace/orders/${encodeURIComponent(publicId)}`, { method: "GET" });
+  return request<HigherPaysOrder>(`/integrations/marketplace/orders/${encodeURIComponent(publicId)}`, { method: "GET" });
 }

@@ -12,7 +12,8 @@ declare global {
 
 type AdminAgency = { _id: string; name: string };
 type AdminAgent = { _id: string; agencyId: string; name: string };
-type AdminCreator = { _id: string; agencyId: string; displayName: string; slug: string; bio: string; status: string };
+type AdminCreator = { _id: string; agencyId: string; displayName: string; slug: string; bio: string; status: string; higherPaysAgentName?: string; higherPaysAccountName?: string };
+type HigherPaysWorkspace = { id: string; name: string; agents: { id: string; name: string }[]; accounts: { id: string; name: string }[] };
 type AdminAsset = { _id: string; agencyId: string; fileName: string; status: string; purpose?: "delivery" | "preview" };
 type AdminCategory = { _id: string; agencyId: string; name: string; slug: string; status: string };
 type AdminProduct = {
@@ -20,7 +21,7 @@ type AdminProduct = {
   amountMinor: number; currency: "EUR"; categoryIds: string[]; previewAssetId?: string; previewMode: "none" | "blurred" | "visible"; mediaAssetIds: string[];
 };
 
-function CreatorGrid({ creators, empty, addCard }: { creators: { key: string; name: string; bio: string; to?: string; status?: string }[]; empty?: ReactNode; addCard?: ReactNode }) {
+function CreatorGrid({ creators, empty, addCard }: { creators: { key: string; name: string; bio: string; to?: string; status?: string; meta?: string }[]; empty?: ReactNode; addCard?: ReactNode }) {
   return <section className="creator-grid">
     {creators.map((creator) => creator.to
       ? <Link className="creator-card" key={creator.key} to={creator.to}><CreatorCard creator={creator} /></Link>
@@ -30,8 +31,8 @@ function CreatorGrid({ creators, empty, addCard }: { creators: { key: string; na
   </section>;
 }
 
-function CreatorCard({ creator }: { creator: { name: string; bio: string; status?: string } }) {
-  return <><div className="creator-cover"><span>{creator.status ?? "18+"}</span></div><h2>{creator.name}</h2><p>{creator.bio}</p>{creator.status && <strong>{creator.status}</strong>}</>;
+function CreatorCard({ creator }: { creator: { name: string; bio: string; status?: string; meta?: string } }) {
+  return <><div className="creator-cover"><span>{creator.status}</span></div><h2>{creator.name}</h2><p>{creator.bio}</p>{creator.meta && <small>{creator.meta}</small>}{creator.status && <strong>{creator.status}</strong>}</>;
 }
 
 function PlusCard({ label, onClick }: { label: string; onClick: () => void }) {
@@ -86,9 +87,9 @@ function Catalog({ t }: { t: CustomerText }) {
   useEffect(() => { void request<{ items: Creator[] }>("/catalog/creators").then((result) => setCreators(result.items)); }, []);
   return <main className="customer-main">
     <p className="eyebrow">{t.privateMarketplace}</p><h1>{t.discoverTitle}</h1>
-    <p className="notice">{t.adultNotice}</p>
+    <p className="notice">{t.deliveryNotice}</p>
     <Link className="customer-guide-link" to="/guide">{t.guideLink}</Link>
-    <CreatorGrid creators={creators.map((creator) => ({ key: creator._id, name: creator.displayName, bio: creator.bio || t.defaultBio, to: `/creators/${creator.slug}` }))} empty={<article className="creator-card creator-empty-card"><div className="creator-cover"><span>18+</span></div><h2>{t.emptyCatalogTitle}</h2><p>{t.emptyCatalogText}</p></article>} />
+    <CreatorGrid creators={creators.map((creator) => ({ key: creator._id, name: creator.displayName, bio: creator.bio || t.defaultBio, to: `/creators/${creator.slug}` }))} empty={<article className="creator-card creator-empty-card"><div className="creator-cover" /><h2>{t.emptyCatalogTitle}</h2><p>{t.emptyCatalogText}</p></article>} />
   </main>;
 }
 
@@ -141,7 +142,7 @@ function CartPage({ t, locale }: { t: CustomerText; locale: CustomerLocale }) {
     } catch { alert(t.checkoutUnavailable); }
   };
   const total = cart?.items.reduce((sum, item) => sum + item.priceMinorSnapshot, 0) ?? 0;
-  return <main className="customer-main"><h1>{t.cartTitle}</h1>{cart?.items.map((item) => <article className="cart-item" key={item.productId}><h2>{item.titleSnapshot}</h2><p>{item.creatorNameSnapshot} · <span className="ltr-value" dir="ltr">{money(item.priceMinorSnapshot, cart.currency, locale)}</span></p><button onClick={() => void remove(item.productId)}>{t.remove}</button></article>)}{cart && !cart.items.length && <p className="empty">{t.emptyCart}</p>}<section className="cart-summary"><h2>{t.total}: <span className="ltr-value" dir="ltr">{money(total, cart?.currency ?? "EUR", locale)}</span></h2><p>{t.adultCheckout}</p><button disabled={!total} onClick={() => void checkout()}>{t.secureCheckout}</button><button className="plain-button" onClick={() => navigate("/")}>{t.continueBrowsing}</button></section></main>;
+  return <main className="customer-main"><h1>{t.cartTitle}</h1>{cart?.items.map((item) => <article className="cart-item" key={item.productId}><h2>{item.titleSnapshot}</h2><p>{item.creatorNameSnapshot} · <span className="ltr-value" dir="ltr">{money(item.priceMinorSnapshot, cart.currency, locale)}</span></p><button onClick={() => void remove(item.productId)}>{t.remove}</button></article>)}{cart && !cart.items.length && <p className="empty">{t.emptyCart}</p>}<section className="cart-summary"><h2>{t.total}: <span className="ltr-value" dir="ltr">{money(total, cart?.currency ?? "EUR", locale)}</span></h2><button disabled={!total} onClick={() => void checkout()}>{t.secureCheckout}</button><button className="plain-button" onClick={() => navigate("/")}>{t.continueBrowsing}</button></section></main>;
 }
 
 function Library({ t }: { t: CustomerText }) {
@@ -243,7 +244,7 @@ function Admin() {
     <header className="admin-header"><div><p className="eyebrow">PRIVATE CREATOR MARKETPLACE</p><h1>{t.adminTitle}</h1></div><LanguageSwitch language={language} setLanguage={setLanguage} title={t.language} /></header>
     <nav className="admin-nav"><Link to="/admin">{t.catalogue}</Link><a href="#setup">{t.setup}</a><button type="button" className="plain-button" onClick={signOut}>{t.signOut}</button></nav>
     {notice && <p role="status" className="notice">{notice}</p>}
-    {creatorId ? selectedCreator ? <AdminCreatorContent creator={selectedCreator} products={currentProducts} assets={currentAssets} categories={categories.filter((category) => category.agencyId === selectedCreator.agencyId)} t={t} selectedAssetIds={selectedAssetIds} setSelectedAssetIds={setSelectedAssetIds} showDialog={showContentDialog} openDialog={() => setShowContentDialog(true)} closeDialog={() => setShowContentDialog(false)} upload={upload} submit={submit} publish={publishProduct} load={load} /> : <p className="empty">{t.loading}</p> : <AdminCatalogue creators={creators} t={t} showDialog={showCreatorDialog} openDialog={() => setShowCreatorDialog(true)} closeDialog={() => setShowCreatorDialog(false)} agencies={agencies} submit={submit} publish={publishCreator} />}
+    {creatorId ? selectedCreator ? <AdminCreatorContent creator={selectedCreator} products={currentProducts} assets={currentAssets} categories={categories.filter((category) => category.agencyId === selectedCreator.agencyId)} t={t} selectedAssetIds={selectedAssetIds} setSelectedAssetIds={setSelectedAssetIds} showDialog={showContentDialog} openDialog={() => setShowContentDialog(true)} closeDialog={() => setShowContentDialog(false)} upload={upload} submit={submit} publish={publishProduct} load={load} /> : <p className="empty">{t.loading}</p> : <AdminCatalogue creators={creators} t={t} showDialog={showCreatorDialog} openDialog={() => setShowCreatorDialog(true)} closeDialog={() => setShowCreatorDialog(false)} submit={submit} publish={publishCreator} />}
     {!creatorId && <AdminSetup agencies={agencies} agents={agents} categories={categories} t={t} submit={submit} setDefaultAgent={setDefaultAgent} load={load} />}
   </main>;
 }
@@ -252,10 +253,36 @@ function LanguageSwitch({ language, setLanguage, title }: { language: AdminLangu
   return <label className="language-switch">{title}<select value={language} onChange={(event) => setLanguage(adminLanguage(event.target.value))}><option value="en">English</option><option value="he">עברית</option></select></label>;
 }
 
-function AdminCatalogue({ creators, agencies, t, showDialog, openDialog, closeDialog, submit, publish }: { creators: AdminCreator[]; agencies: AdminAgency[]; t: typeof adminCopy.en; showDialog: boolean; openDialog: () => void; closeDialog: () => void; submit: AdminSubmit; publish: (id: string) => void }) {
-  return <><section className="admin-intro"><h2>{t.creatorCatalogue}</h2><p>{t.catalogueHelp}</p></section><CreatorGrid creators={creators.map((creator) => ({ key: creator._id, name: creator.displayName, bio: creator.bio || "—", status: creator.status === "published" ? t.published : t.draft, to: `/admin/creators/${creator._id}` }))} addCard={<PlusCard label={t.addCreator} onClick={openDialog} />} empty={<article className="creator-card creator-empty-card"><h2>{t.creatorEmpty}</h2></article>} />
-    {showDialog && <Dialog title={t.newCreator} close={closeDialog}><form onSubmit={(event) => void submit(event, "/admin/creators", (data) => ({ agencyId: data.get("agencyId"), displayName: data.get("displayName"), slug: data.get("slug"), bio: data.get("bio"), rightsAttestation: { affirmedBy: data.get("affirmedBy"), statementVersion: "2026-09", creatorIsAdult: true, distributionAuthorized: true } }), t.creatorCreated).then(closeDialog)}><label>{t.agency}<select name="agencyId" required><option value="">{t.chooseAgency}</option>{agencies.map((agency) => <option value={agency._id} key={agency._id}>{agency.name}</option>)}</select></label><label>{t.creatorName}<input name="displayName" required /></label><label>{t.creatorSlug}<input name="slug" pattern="[a-z0-9-]+" placeholder="creator-slug" required /></label><label>{t.creatorBio}<textarea name="bio" /></label><label>{t.approvingAdmin}<input name="affirmedBy" required /></label><p className="help">{t.rightsHelp}</p><button>{t.createCreator}</button></form></Dialog>}
+function AdminCatalogue({ creators, t, showDialog, openDialog, closeDialog, submit, publish }: { creators: AdminCreator[]; t: typeof adminCopy.en; showDialog: boolean; openDialog: () => void; closeDialog: () => void; submit: AdminSubmit; publish: (id: string) => void }) {
+  return <><section className="admin-intro"><h2>{t.creatorCatalogue}</h2><p>{t.catalogueHelp}</p></section><CreatorGrid creators={creators.map((creator) => ({ key: creator._id, name: creator.displayName, bio: creator.bio || "—", status: creator.status === "published" ? t.published : t.draft, meta: creatorLinks(creator, t), to: `/admin/creators/${creator._id}` }))} addCard={<PlusCard label={t.addCreator} onClick={openDialog} />} empty={<article className="creator-card creator-empty-card"><h2>{t.creatorEmpty}</h2></article>} />
+    {showDialog && <Dialog title={t.newCreator} close={closeDialog}><NewCreatorForm t={t} submit={submit} closeDialog={closeDialog} /></Dialog>}
     {creators.some((creator) => creator.status !== "published") && <section><h2>{t.draft}</h2>{creators.filter((creator) => creator.status !== "published").map((creator) => <p key={creator._id}>{creator.displayName} <button type="button" onClick={() => void publish(creator._id)}>{t.publish}</button></p>)}</section>}</>;
+}
+
+function creatorLinks(creator: AdminCreator, t: typeof adminCopy.en) {
+  return [
+    creator.higherPaysAgentName && `${t.linkedChatter}: ${creator.higherPaysAgentName}`,
+    creator.higherPaysAccountName && `${t.linkedCreator}: ${creator.higherPaysAccountName}`,
+  ].filter(Boolean).join(" · ");
+}
+
+function NewCreatorForm({ t, submit, closeDialog }: { t: typeof adminCopy.en; submit: AdminSubmit; closeDialog: () => void }) {
+  const [workspaces, setWorkspaces] = useState<HigherPaysWorkspace[]>([]);
+  const [workspaceId, setWorkspaceId] = useState("");
+  const [directoryFailed, setDirectoryFailed] = useState(false);
+  useEffect(() => { void request<{ workspaces: HigherPaysWorkspace[] }>("/admin/higherpays/directory").then((result) => setWorkspaces(result.workspaces)).catch(() => setDirectoryFailed(true)); }, []);
+  const workspace = workspaces.find((candidate) => candidate.id === workspaceId);
+  return <form onSubmit={(event) => void submit(event, "/admin/creators", (data) => ({ higherPaysWorkspaceId: data.get("higherPaysWorkspaceId"), higherPaysAgentId: data.get("higherPaysAgentId") || undefined, higherPaysAccountId: data.get("higherPaysAccountId") || undefined, displayName: data.get("displayName"), slug: data.get("slug"), bio: data.get("bio"), rightsAttestation: { affirmedBy: data.get("affirmedBy") } }), t.creatorCreated).then(closeDialog)}>
+    {directoryFailed && <p role="alert" className="notice">{t.directoryFailed}</p>}
+    <label>{t.agency}<select name="higherPaysWorkspaceId" value={workspaceId} onChange={(event) => setWorkspaceId(event.target.value)} required><option value="">{t.chooseAgency}</option>{workspaces.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name}</option>)}</select></label>
+    <label>{t.chatters}<select name="higherPaysAgentId" key={`agent-${workspaceId}`} disabled={!workspace}><option value="">{t.chooseChatter}</option>{workspace?.agents.map((agent) => <option value={agent.id} key={agent.id}>{agent.name}</option>)}</select></label>
+    <label>{t.higherPaysCreators}<select name="higherPaysAccountId" key={`account-${workspaceId}`} disabled={!workspace}><option value="">{t.chooseHigherPaysCreator}</option>{workspace?.accounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select></label>
+    <label>{t.creatorName}<input name="displayName" required /></label>
+    <label>{t.creatorSlug}<input name="slug" pattern="[a-z0-9-]+" placeholder="creator-slug" required /></label>
+    <label>{t.creatorBio}<textarea name="bio" /></label>
+    <label>{t.approvingAdmin}<input name="affirmedBy" required /></label>
+    <button>{t.createCreator}</button>
+  </form>;
 }
 
 type AdminSubmit = (event: FormEvent<HTMLFormElement>, path: string, build: (data: FormData) => unknown, success?: string, method?: "POST" | "PATCH") => Promise<void>;
@@ -269,7 +296,7 @@ function AdminCreatorContent({ creator, products, assets, categories, t, selecte
     const target = index + direction; if (target < 0 || target >= selectedAssetIds.length) return;
     const next = [...selectedAssetIds]; [next[index], next[target]] = [next[target], next[index]]; setSelectedAssetIds(next);
   };
-  return <><nav><Link to="/admin">← {t.backToCatalogue}</Link></nav><section className="admin-intro"><p className="eyebrow">{t.content}</p><h2>{creator.displayName}</h2><p>{t.contentHelp}</p></section>
+  return <><nav><Link to="/admin">← {t.backToCatalogue}</Link></nav><section className="admin-intro"><p className="eyebrow">{t.content}</p><h2>{creator.displayName}</h2><p className="help">{creatorLinks(creator, t)}</p><p>{t.contentHelp}</p></section>
     <ContentGrid className="admin-content-grid" items={products} addCard={<PlusCard label={t.addContent} onClick={openNew} />} empty={<p className="empty">{t.contentEmpty}</p>} renderCopy={(product) => <><h2>{product.title}</h2><p>{product.status === "published" ? t.published : t.draft}</p><button type="button" onClick={() => openEdit(product as AdminProduct)}>Edit</button>{product.status !== "published" && <button type="button" onClick={() => void publish(product._id)}>{t.publish}</button>}<button type="button" className="plain-button" onClick={() => void archive(product._id)}>Archive</button></>} />
     {showDialog && <Dialog title={editing ? "Edit content" : t.newContent} close={closeDialog}><form onSubmit={(event) => void submit(event, editing ? `/admin/products/${editing._id}` : "/admin/products", (data) => ({ ...(editing ? {} : { agencyId: creator.agencyId, creatorId: creator._id }), title: data.get("title"), slug: data.get("slug"), description: data.get("description"), categoryIds: selectedCategoryIds, previewMode: data.get("previewMode"), previewAssetId: data.get("previewMode") === "none" ? null : data.get("previewAssetId") || undefined, mediaAssetIds: selectedAssetIds, amountMinor: euroToMinor(data.get("price")), currency: "EUR" }), editing ? t.saved : t.productCreated, editing ? "PATCH" : "POST").then(closeDialog)}><label>{t.productTitle}<input name="title" defaultValue={editing?.title} required /></label><label>{t.productSlug}<input name="slug" pattern="[a-z0-9-]+" placeholder="product-slug" defaultValue={editing?.slug} required /></label><label>{t.description}<textarea name="description" defaultValue={editing?.description} /></label><label>{t.price}<input name="price" type="text" inputMode="decimal" pattern="\d+(\.\d{1,2})?" defaultValue={editing ? (editing.amountMinor / 100).toFixed(2) : ""} required /></label><label>{t.preview}<select name="previewMode" defaultValue={editing?.previewMode ?? "blurred"}><option value="none">No preview</option><option value="blurred">Blurred preview</option><option value="visible">Visible preview</option></select></label><label>{t.preview}<select name="previewAssetId" defaultValue={editing?.previewAssetId ?? ""}><option value="">{t.noPreview}</option>{assets.filter((asset) => asset.purpose === "preview").map((asset) => <option key={asset._id} value={asset._id}>{asset.fileName}</option>)}</select></label><fieldset><legend>Categories</legend>{categories.filter((category) => category.status === "active").map((category) => <label key={category._id}><input type="checkbox" checked={selectedCategoryIds.includes(category._id)} onChange={(event) => setSelectedCategoryIds(event.target.checked ? [...selectedCategoryIds, category._id] : selectedCategoryIds.filter((id) => id !== category._id))} /> {category.name}</label>)}</fieldset><fieldset><legend>{t.privateFiles} (delivery order)</legend>{assets.filter((asset) => (asset.purpose ?? "delivery") === "delivery").map((asset) => <label key={asset._id}><input type="checkbox" checked={selectedAssetIds.includes(asset._id)} onChange={(event) => setSelectedAssetIds(event.target.checked ? [...selectedAssetIds, asset._id] : selectedAssetIds.filter((id) => id !== asset._id))} /> {asset.fileName}{selectedAssetIds.includes(asset._id) && <span><button type="button" className="plain-button" onClick={() => moveAsset(selectedAssetIds.indexOf(asset._id), -1)}>↑</button><button type="button" className="plain-button" onClick={() => moveAsset(selectedAssetIds.indexOf(asset._id), 1)}>↓</button></span>}</label>)}{!assets.length && <p className="help">{t.noMedia}</p>}</fieldset><button disabled={!selectedAssetIds.length}>{editing ? t.save : t.createProduct}</button></form><section className="upload-panel"><h3>{t.uploadMedia}</h3><form onSubmit={(event) => void upload(event, creator.agencyId)}><label>{t.uploadPurpose}<select name="purpose" defaultValue="delivery"><option value="delivery">{t.deliveryFile}</option><option value="preview">{t.previewFile}</option></select></label><label>{t.chooseFile}<input name="file" type="file" accept="image/*,video/*,audio/*,application/*" required /></label><button>{t.upload}</button></form><p className="help">{t.uploadHelp}</p></section></Dialog>}</>;
 }
@@ -279,23 +306,12 @@ function AdminSetup({ agencies, agents, categories, t, submit, setDefaultAgent, 
   return <section id="setup" className="setup-panel"><h2>{t.setup}</h2><p className="help">{t.setupEmpty}</p><article className="warning"><h3>{t.attributionTitle}</h3><p>{t.attributionHelp}</p><p>{t.secretWarning}</p></article><div className="setup-grid"><section><h3>{t.agency}</h3><form onSubmit={(event) => void submit(event, "/admin/agencies", (data) => ({ name: data.get("name"), higherPaysWorkspaceId: data.get("workspace") }))}><label>{t.agencyName}<input name="name" required /></label><label>{t.workspaceId}<input name="workspace" required /></label><p className="help">{t.workspaceHelp}</p><button>{t.createAgency}</button></form>{agencies.length ? agencies.map((agency) => <p key={agency._id}>{agency.name}</p>) : <p className="empty">{t.agencyEmpty}</p>}</section><section><h3>{t.agent}</h3><form onSubmit={(event) => void submit(event, "/admin/agents", (data) => ({ agencyId: data.get("agencyId"), name: data.get("name"), higherPaysAgentId: data.get("higherPaysAgentId") }))}><label>{t.agency}<select name="agencyId" required><option value="">{t.chooseAgency}</option>{agencies.map((agency) => <option value={agency._id} key={agency._id}>{agency.name}</option>)}</select></label><label>{t.agentName}<input name="name" required /></label><label>{t.agentId}<input name="higherPaysAgentId" required /></label><p className="help">{t.agentHelp}</p><button>{t.createAgent}</button></form>{agents.length ? agents.map((agent) => <p key={agent._id}>{agent.name} <button type="button" onClick={() => void setDefaultAgent(agent)}>{t.setCheckoutAgent}</button></p>) : <p className="empty">{t.agentEmpty}</p>}</section><section><h3>Categories</h3><form onSubmit={(event) => void submit(event, "/admin/categories", (data) => ({ agencyId: data.get("agencyId"), name: data.get("name"), slug: data.get("slug") }))}><label>{t.agency}<select name="agencyId" required><option value="">{t.chooseAgency}</option>{agencies.map((agency) => <option value={agency._id} key={agency._id}>{agency.name}</option>)}</select></label><label>Name<input name="name" required /></label><label>Slug<input name="slug" pattern="[a-z0-9-]+" required /></label><button>Create category</button></form>{categories.map((category) => <p key={category._id}>{category.name} ({category.status}) {category.status === "active" && <button type="button" className="plain-button" onClick={() => void archiveCategory(category._id)}>Archive</button>}</p>)}</section></div></section>;
 }
 
-function AgeGate({ children, t }: { children: ReactNode; t: CustomerText }) {
-  const [accepted, setAccepted] = useState(sessionStorage.getItem("marketplace_age_confirmed") === "yes");
-  const [error, setError] = useState("");
-  const confirm = async () => {
-    try { await request("/me/age-confirmation", { method: "POST", body: JSON.stringify({ accepted: true, version: "2026-09" }) }); sessionStorage.setItem("marketplace_age_confirmed", "yes"); setAccepted(true); }
-    catch { setError(t.ageError); }
-  };
-  if (accepted) return <>{children}</>;
-  return <main className="age-gate customer-main"><p className="eyebrow">{t.privateMarketplace}</p><h1>{t.adultsOnly}</h1><p>{t.ageText}</p>{error && <p role="alert" className="notice">{error}</p>}<button onClick={() => void confirm()}>{t.ageConfirm}</button><p className="fine-print">{t.privacy}</p></main>;
-}
-
 function Marketplace() {
   const { ready, error, locale, setLocale } = useTelegramSession();
   const t = customerCopy[locale];
   if (error) return <main className="customer-main"><h1>{t.privateMarketplace}</h1><p>{t.sessionError}</p></main>;
   if (!ready) return <main className="customer-main"><h1>{t.privateMarketplace}</h1><p>{t.sessionVerifying}</p></main>;
-  return <CustomerShell locale={locale} setLocale={setLocale}><AgeGate t={t}><Routes><Route path="/" element={<Catalog t={t} />} /><Route path="/guide" element={<Guide t={t} />} /><Route path="/creators/:slug" element={<CreatorPage t={t} locale={locale} />} /><Route path="/cart" element={<CartPage t={t} locale={locale} />} /><Route path="/library" element={<Library t={t} />} /><Route path="/payment-complete" element={<PaymentComplete t={t} />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes></AgeGate></CustomerShell>;
+  return <CustomerShell locale={locale} setLocale={setLocale}><Routes><Route path="/" element={<Catalog t={t} />} /><Route path="/guide" element={<Guide t={t} />} /><Route path="/creators/:slug" element={<CreatorPage t={t} locale={locale} />} /><Route path="/cart" element={<CartPage t={t} locale={locale} />} /><Route path="/library" element={<Library t={t} />} /><Route path="/payment-complete" element={<PaymentComplete t={t} />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes></CustomerShell>;
 }
 
 export function App() {

@@ -6,7 +6,6 @@ import { orderPublicId, sumMinor } from "./commerce.js";
 
 export async function createOrderForCart(telegramUserId: string) {
   const user = await TelegramUser.findById(telegramUserId);
-  if (!user?.ageConfirmedAt) throw new Error("age_confirmation_required");
   const cart = await Cart.findOne({ telegramUserId, status: "active" });
   if (!cart?.items.length) throw new Error("cart_empty");
   const existing = await Order.findOne({ cartId: cart._id });
@@ -22,7 +21,14 @@ export async function createOrderForCart(telegramUserId: string) {
   }
   if (agencies.size !== 1) throw new Error("mixed_agency_cart");
   const agency = [...agencies.values()][0];
-  if (!agency?.defaultAgentId) throw new Error("agency_checkout_not_configured");
+  if (!agency) throw new Error("agency_checkout_not_configured");
+  const creatorDocs = await Creator.find({ _id: { $in: products.map((product: any) => product.creatorId) } });
+  // One linked HigherPays agent/creator shared by every creator in the cart wins over the agency default.
+  const linkedAgentIds = new Set(creatorDocs.map((creator: any) => creator.higherPaysAgentId ?? ""));
+  const linkedAccountIds = new Set(creatorDocs.map((creator: any) => creator.higherPaysAccountId ?? ""));
+  const linkedAgentId = linkedAgentIds.size === 1 ? [...linkedAgentIds][0] : "";
+  const linkedAccountId = linkedAccountIds.size === 1 ? [...linkedAccountIds][0] : "";
+  if (!linkedAgentId && !agency.defaultAgentId) throw new Error("agency_checkout_not_configured");
   const productById = new Map(products.map((product) => [String(product._id), product]));
   const lines = await Promise.all(cart.items.map(async (item: any) => {
     const product = productById.get(String(item.productId))!;
@@ -42,7 +48,9 @@ export async function createOrderForCart(telegramUserId: string) {
     };
   }));
   const subtotalMinor = sumMinor(lines.map((line) => line.amountMinor));
-  const agent = await Agent.findById(agency.defaultAgentId);
+  const agent = linkedAgentId
+    ? await Agent.findOneAndUpdate({ agencyId: agency._id, higherPaysAgentId: linkedAgentId }, { $setOnInsert: { name: creatorDocs[0]?.higherPaysAgentName ?? "Agent", active: true } }, { upsert: true, new: true })
+    : await Agent.findById(agency.defaultAgentId);
   if (!agent?.active) throw new Error("agency_checkout_not_configured");
   let order = existing;
   if (!order) {
@@ -51,6 +59,7 @@ export async function createOrderForCart(telegramUserId: string) {
         publicId: orderPublicId(String(cart._id)), checkoutIdempotencyKey: `cart:${cart._id}`,
         agencyId: agency._id, agentId: agent._id,
         higherPaysWorkspaceId: agency.higherPaysWorkspaceId, higherPaysAgentId: agent.higherPaysAgentId,
+        higherPaysAccountId: linkedAccountId || undefined,
         telegramUserId, cartId: cart._id, lines, subtotalMinor,
         totalMinor: subtotalMinor,
         currency: cart.currency, returnNonce: crypto.randomBytes(18).toString("base64url"),
