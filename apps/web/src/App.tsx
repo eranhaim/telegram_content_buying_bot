@@ -16,14 +16,25 @@ declare global {
 }
 
 type AdminAgency = { _id: string; name: string };
-type AdminAgent = { _id: string; agencyId: string; name: string };
-type AdminCreator = { _id: string; agencyId: string; displayName: string; slug: string; bio: string; status: string; higherPaysAgentName?: string; higherPaysAccountName?: string };
-type HigherPaysWorkspace = { id: string; name: string; agents: { id: string; name: string }[]; accounts: { id: string; name: string }[] };
+type AdminCreator = { _id: string; agencyId: string; displayName: string; slug: string; bio: string; status: string };
 type AdminAsset = { _id: string; agencyId: string; fileName: string; status: string; purpose?: "delivery" | "preview" };
 type AdminCategory = { _id: string; agencyId: string; name: string; slug: string; status: string };
 type AdminProduct = {
   _id: string; agencyId: string; creatorId: string; title: string; slug: string; description: string; status: string;
   amountMinor: number; currency: "EUR"; categoryIds: string[]; previewAssetId?: string; previewMode: "none" | "blurred" | "visible"; mediaAssetIds: string[];
+};
+type AdminOrder = {
+  _id: string; publicId: string; totalMinor: number; currency: string;
+  paymentStatus: string; fulfillmentStatus: string; createdAt: string; paidAt?: string;
+  lines: { productTitle: string; creatorName: string; amountMinor: number }[];
+  telegramUser: { username?: string; firstName?: string } | null;
+};
+type RevenueData = {
+  total: { grossMinor: number; count: number };
+  today: { grossMinor: number; count: number };
+  month: { grossMinor: number; count: number };
+  creators: { _id: string; name: string; purchases: number; grossMinor: number }[];
+  statusCounts: Record<string, number>;
 };
 
 function CreatorGrid({ creators, empty, addCard }: { creators: { key: string; name: string; bio: string; to?: string; status?: string; meta?: string }[]; empty?: ReactNode; addCard?: ReactNode }) {
@@ -177,13 +188,82 @@ function Dialog({ title, close, children }: { title: string; close: () => void; 
   return <div className="dialog-backdrop" role="presentation"><section className="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title"><div className="dialog-heading"><h2 id="dialog-title">{title}</h2><button type="button" className="plain-button" onClick={close} aria-label="Close">×</button></div>{children}</section></div>;
 }
 
+// --- Admin: Orders tab ---
+
+function AdminOrders({ t }: { t: typeof adminCopy.en }) {
+  const [orders, setOrders] = useState<AdminOrder[]>([]);
+  const [filter, setFilter] = useState("");
+  useEffect(() => {
+    const qs = filter ? `?status=${filter}` : "";
+    void request<{ items: AdminOrder[] }>(`/admin/orders${qs}`).then((r) => setOrders(r.items)).catch(() => {});
+  }, [filter]);
+  const statuses = ["pending", "paid", "expired", "failed", "refunded", "charged_back"];
+  const formatDate = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return <>
+    <section className="admin-intro"><h2>{t.ordersTitle}</h2></section>
+    <div className="order-filters">
+      <button className={`filter-btn${filter === "" ? " active" : ""}`} onClick={() => setFilter("")}>{t.filterAll}</button>
+      {statuses.map((s) => <button key={s} className={`filter-btn${filter === s ? " active" : ""}`} onClick={() => setFilter(s)}>{s}</button>)}
+    </div>
+    {orders.length ? <div className="admin-table-wrap"><table className="admin-table">
+      <thead><tr><th>{t.date}</th><th>{t.customer}</th><th>{t.items}</th><th>{t.total}</th><th>{t.payment}</th><th>{t.fulfillment}</th><th>{t.orderId}</th></tr></thead>
+      <tbody>{orders.map((o) => {
+        const user = o.telegramUser?.username ? `@${o.telegramUser.username}` : (o.telegramUser?.firstName ?? "—");
+        const items = o.lines.map((l) => l.productTitle).join(", ");
+        return <tr key={o._id}>
+          <td>{formatDate(o.createdAt)}</td>
+          <td>{user}</td>
+          <td title={items}>{items.length > 40 ? items.slice(0, 37) + "…" : items}</td>
+          <td className="ltr-value" dir="ltr">{money(o.totalMinor, o.currency)}</td>
+          <td><span className={`status-badge status-${o.paymentStatus}`}>{o.paymentStatus}</span></td>
+          <td>{o.fulfillmentStatus}</td>
+          <td className="order-id" dir="ltr">{o.publicId}</td>
+        </tr>;
+      })}</tbody>
+    </table></div> : <p className="empty">{t.noOrders}</p>}
+  </>;
+}
+
+// --- Admin: Revenue tab ---
+
+function AdminRevenue({ t }: { t: typeof adminCopy.en }) {
+  const [data, setData] = useState<RevenueData | null>(null);
+  useEffect(() => { void request<RevenueData>("/admin/revenue").then(setData).catch(() => {}); }, []);
+  if (!data) return <p className="empty">{t.loading}</p>;
+  return <>
+    <section className="admin-intro"><h2>{t.revenueTitle}</h2></section>
+    <div className="revenue-cards">
+      <div className="revenue-card"><div className="revenue-value ltr-value" dir="ltr">{money(data.total.grossMinor, "EUR")}</div><div className="revenue-label">{t.totalRevenue}</div></div>
+      <div className="revenue-card"><div className="revenue-value ltr-value" dir="ltr">{money(data.today.grossMinor, "EUR")}</div><div className="revenue-label">{t.todayRevenue} ({data.today.count})</div></div>
+      <div className="revenue-card"><div className="revenue-value ltr-value" dir="ltr">{money(data.month.grossMinor, "EUR")}</div><div className="revenue-label">{t.monthRevenue} ({data.month.count})</div></div>
+      <div className="revenue-card"><div className="revenue-value">{data.total.count}</div><div className="revenue-label">{t.paidOrders}</div></div>
+      <div className="revenue-card"><div className="revenue-value">{data.statusCounts.pending ?? 0}</div><div className="revenue-label">{t.pendingOrders}</div></div>
+      <div className="revenue-card"><div className="revenue-value">{data.statusCounts.expired ?? 0}</div><div className="revenue-label">{t.expiredOrders}</div></div>
+    </div>
+    <h2 style={{ margin: "24px 0 12px" }}>{t.creatorRevenue}</h2>
+    {data.creators.length ? <div className="admin-table-wrap"><table className="admin-table">
+      <thead><tr><th>Creator</th><th>{t.revenue}</th><th>{t.purchases}</th></tr></thead>
+      <tbody>{data.creators.map((c) => <tr key={c._id}>
+        <td>{c.name}</td>
+        <td className="ltr-value" dir="ltr">{money(c.grossMinor, "EUR")}</td>
+        <td>{c.purchases}</td>
+      </tr>)}</tbody>
+    </table></div> : <p className="empty">{t.noSalesYet}</p>}
+  </>;
+}
+
+// --- Admin shell ---
+
 function Admin() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { creatorId } = useParams();
+  const isOrders = location.pathname === "/admin/orders";
+  const isRevenue = location.pathname === "/admin/revenue";
+  const isCatalogue = !isOrders && !isRevenue && !creatorId;
   const [language, setLanguage] = useState<AdminLanguage>(() => adminLanguage(localStorage.getItem("marketplace_admin_language")));
   const [token, setAdminToken] = useState(sessionStorage.getItem("marketplace_admin_token") ?? "");
   const [agencies, setAgencies] = useState<AdminAgency[]>([]);
-  const [agents, setAgents] = useState<AdminAgent[]>([]);
   const [creators, setCreators] = useState<AdminCreator[]>([]);
   const [assets, setAssets] = useState<AdminAsset[]>([]);
   const [categories, setCategories] = useState<AdminCategory[]>([]);
@@ -207,11 +287,13 @@ function Admin() {
     return fallback;
   };
   const load = () => void Promise.all([
-    request<{ items: AdminAgency[] }>("/admin/agencies"), request<{ items: AdminAgent[] }>("/admin/agents"),
-    request<{ items: AdminCreator[] }>("/admin/creators"), request<{ items: AdminAsset[] }>("/admin/assets"),
-    request<{ items: AdminProduct[] }>("/admin/products"), request<{ items: AdminCategory[] }>("/admin/categories"),
-  ]).then(([agencyResult, agentResult, creatorResult, assetResult, productResult, categoryResult]) => {
-    setAgencies(agencyResult.items); setAgents(agentResult.items); setCreators(creatorResult.items); setAssets(assetResult.items); setProducts(productResult.items); setCategories(categoryResult.items);
+    request<{ items: AdminAgency[] }>("/admin/agencies"),
+    request<{ items: AdminCreator[] }>("/admin/creators"),
+    request<{ items: AdminAsset[] }>("/admin/assets"),
+    request<{ items: AdminProduct[] }>("/admin/products"),
+    request<{ items: AdminCategory[] }>("/admin/categories"),
+  ]).then(([agencyResult, creatorResult, assetResult, productResult, categoryResult]) => {
+    setAgencies(agencyResult.items); setCreators(creatorResult.items); setAssets(assetResult.items); setProducts(productResult.items); setCategories(categoryResult.items);
   }).catch((error) => setNotice(message(error)));
   useEffect(() => { if (token) { setToken(token); load(); } }, [token]);
   const login = async (event: FormEvent<HTMLFormElement>) => {
@@ -241,7 +323,6 @@ function Admin() {
   };
   const publishCreator = async (id: string) => { try { await request(`/admin/creators/${id}`, { method: "PATCH", body: JSON.stringify({ status: "published" }) }); setNotice(t.published); load(); } catch (error) { setNotice(message(error, t.saveFailed)); } };
   const publishProduct = async (id: string) => { try { await request(`/admin/products/${id}`, { method: "PATCH", body: JSON.stringify({ status: "published" }) }); setNotice(t.published); load(); } catch (error) { setNotice(message(error, t.saveFailed)); } };
-  const setDefaultAgent = async (agent: AdminAgent) => { try { await request(`/admin/agencies/${agent.agencyId}`, { method: "PATCH", body: JSON.stringify({ defaultAgentId: agent._id }) }); setNotice(t.checkoutAgentSet.replace("{name}", agent.name)); } catch (error) { setNotice(message(error, t.saveFailed)); } };
   const signOut = () => { sessionStorage.removeItem("marketplace_admin_token"); clearToken(); setAdminToken(""); navigate("/admin"); };
 
   if (!token) return <main className="admin" lang={language} dir={direction}><LanguageSwitch language={language} setLanguage={setLanguage} title={t.language} /><h1>{t.signIn}</h1>{notice && <p role="alert" className="notice">{notice}</p>}<form onSubmit={(event) => void login(event)}><label>{t.password}<input name="password" type="password" placeholder={t.password} autoComplete="current-password" required /></label><button>{t.signIn}</button></form></main>;
@@ -250,10 +331,19 @@ function Admin() {
   const currentProducts = selectedCreator ? products.filter((product) => product.creatorId === selectedCreator._id) : [];
   return <main className="admin" lang={language} dir={direction}>
     <header className="admin-header"><div><p className="eyebrow">PRIVATE CREATOR MARKETPLACE</p><h1>{t.adminTitle}</h1></div><LanguageSwitch language={language} setLanguage={setLanguage} title={t.language} /></header>
-    <nav className="admin-nav"><Link to="/admin">{t.catalogue}</Link><a href="#setup">{t.setup}</a><button type="button" className="plain-button" onClick={signOut}>{t.signOut}</button></nav>
+    <nav className="admin-nav">
+      <Link to="/admin">{t.catalogue}</Link>
+      <Link to="/admin/orders">{t.orders}</Link>
+      <Link to="/admin/revenue">{t.revenue}</Link>
+      <a href="#setup">{t.setup}</a>
+      <button type="button" className="plain-button" onClick={signOut}>{t.signOut}</button>
+    </nav>
     {notice && <p role="status" className="notice">{notice}</p>}
-    {creatorId ? selectedCreator ? <AdminCreatorContent creator={selectedCreator} products={currentProducts} assets={currentAssets} categories={categories.filter((category) => category.agencyId === selectedCreator.agencyId)} t={t} selectedAssetIds={selectedAssetIds} setSelectedAssetIds={setSelectedAssetIds} showDialog={showContentDialog} openDialog={() => setShowContentDialog(true)} closeDialog={() => setShowContentDialog(false)} upload={upload} submit={submit} publish={publishProduct} load={load} /> : <p className="empty">{t.loading}</p> : <AdminCatalogue creators={creators} t={t} showDialog={showCreatorDialog} openDialog={() => setShowCreatorDialog(true)} closeDialog={() => setShowCreatorDialog(false)} submit={submit} publish={publishCreator} />}
-    {!creatorId && <AdminSetup agencies={agencies} agents={agents} categories={categories} t={t} submit={submit} setDefaultAgent={setDefaultAgent} load={load} />}
+    {isOrders && <AdminOrders t={t} />}
+    {isRevenue && <AdminRevenue t={t} />}
+    {creatorId ? selectedCreator ? <AdminCreatorContent creator={selectedCreator} products={currentProducts} assets={currentAssets} categories={categories.filter((category) => category.agencyId === selectedCreator.agencyId)} t={t} selectedAssetIds={selectedAssetIds} setSelectedAssetIds={setSelectedAssetIds} showDialog={showContentDialog} openDialog={() => setShowContentDialog(true)} closeDialog={() => setShowContentDialog(false)} upload={upload} submit={submit} publish={publishProduct} load={load} /> : <p className="empty">{t.loading}</p> : null}
+    {isCatalogue && <AdminCatalogue creators={creators} agencies={agencies} t={t} showDialog={showCreatorDialog} openDialog={() => setShowCreatorDialog(true)} closeDialog={() => setShowCreatorDialog(false)} submit={submit} publish={publishCreator} />}
+    {isCatalogue && <AdminSetup agencies={agencies} categories={categories} t={t} submit={submit} load={load} />}
   </main>;
 }
 
@@ -261,30 +351,21 @@ function LanguageSwitch({ language, setLanguage, title }: { language: AdminLangu
   return <label className="language-switch">{title}<select value={language} onChange={(event) => setLanguage(adminLanguage(event.target.value))}><option value="en">English</option><option value="he">עברית</option></select></label>;
 }
 
-function AdminCatalogue({ creators, t, showDialog, openDialog, closeDialog, submit, publish }: { creators: AdminCreator[]; t: typeof adminCopy.en; showDialog: boolean; openDialog: () => void; closeDialog: () => void; submit: AdminSubmit; publish: (id: string) => void }) {
-  return <><section className="admin-intro"><h2>{t.creatorCatalogue}</h2><p>{t.catalogueHelp}</p></section><CreatorGrid creators={creators.map((creator) => ({ key: creator._id, name: creator.displayName, bio: creator.bio || "—", status: creator.status === "published" ? t.published : t.draft, meta: creatorLinks(creator, t), to: `/admin/creators/${creator._id}` }))} addCard={<PlusCard label={t.addCreator} onClick={openDialog} />} empty={<article className="creator-card creator-empty-card"><h2>{t.creatorEmpty}</h2></article>} />
-    {showDialog && <Dialog title={t.newCreator} close={closeDialog}><NewCreatorForm t={t} submit={submit} closeDialog={closeDialog} /></Dialog>}
+function AdminCatalogue({ creators, agencies, t, showDialog, openDialog, closeDialog, submit, publish }: { creators: AdminCreator[]; agencies: AdminAgency[]; t: typeof adminCopy.en; showDialog: boolean; openDialog: () => void; closeDialog: () => void; submit: AdminSubmit; publish: (id: string) => void }) {
+  return <><section className="admin-intro"><h2>{t.creatorCatalogue}</h2><p>{t.catalogueHelp}</p></section><CreatorGrid creators={creators.map((creator) => ({ key: creator._id, name: creator.displayName, bio: creator.bio || "—", status: creator.status === "published" ? t.published : t.draft, to: `/admin/creators/${creator._id}` }))} addCard={<PlusCard label={t.addCreator} onClick={openDialog} />} empty={<article className="creator-card creator-empty-card"><h2>{t.creatorEmpty}</h2></article>} />
+    {showDialog && <Dialog title={t.newCreator} close={closeDialog}><NewCreatorForm agencies={agencies} t={t} submit={submit} closeDialog={closeDialog} /></Dialog>}
     {creators.some((creator) => creator.status !== "published") && <section><h2>{t.draft}</h2>{creators.filter((creator) => creator.status !== "published").map((creator) => <p key={creator._id}>{creator.displayName} <button type="button" onClick={() => void publish(creator._id)}>{t.publish}</button></p>)}</section>}</>;
 }
 
-function creatorLinks(creator: AdminCreator, t: typeof adminCopy.en) {
-  return [
-    creator.higherPaysAgentName && `${t.linkedChatter}: ${creator.higherPaysAgentName}`,
-    creator.higherPaysAccountName && `${t.linkedCreator}: ${creator.higherPaysAccountName}`,
-  ].filter(Boolean).join(" · ");
-}
-
-function NewCreatorForm({ t, submit, closeDialog }: { t: typeof adminCopy.en; submit: AdminSubmit; closeDialog: () => void }) {
-  const [workspaces, setWorkspaces] = useState<HigherPaysWorkspace[]>([]);
-  const [workspaceId, setWorkspaceId] = useState("");
-  const [directoryFailed, setDirectoryFailed] = useState(false);
-  useEffect(() => { void request<{ workspaces: HigherPaysWorkspace[] }>("/admin/higherpays/directory").then((result) => setWorkspaces(result.workspaces)).catch(() => setDirectoryFailed(true)); }, []);
-  const workspace = workspaces.find((candidate) => candidate.id === workspaceId);
-  return <form onSubmit={(event) => void submit(event, "/admin/creators", (data) => ({ higherPaysWorkspaceId: data.get("higherPaysWorkspaceId"), higherPaysAgentId: data.get("higherPaysAgentId") || undefined, higherPaysAccountId: data.get("higherPaysAccountId") || undefined, displayName: data.get("displayName"), slug: data.get("slug"), bio: data.get("bio"), rightsAttestation: { affirmedBy: data.get("affirmedBy") } }), t.creatorCreated).then(closeDialog)}>
-    {directoryFailed && <p role="alert" className="notice">{t.directoryFailed}</p>}
-    <label>{t.agency}<select name="higherPaysWorkspaceId" value={workspaceId} onChange={(event) => setWorkspaceId(event.target.value)} required><option value="">{t.chooseAgency}</option>{workspaces.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name}</option>)}</select></label>
-    <label>{t.chatters}<select name="higherPaysAgentId" key={`agent-${workspaceId}`} disabled={!workspace}><option value="">{t.chooseChatter}</option>{workspace?.agents.map((agent) => <option value={agent.id} key={agent.id}>{agent.name}</option>)}</select></label>
-    <label>{t.higherPaysCreators}<select name="higherPaysAccountId" key={`account-${workspaceId}`} disabled={!workspace}><option value="">{t.chooseHigherPaysCreator}</option>{workspace?.accounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select></label>
+function NewCreatorForm({ agencies, t, submit, closeDialog }: { agencies: AdminAgency[]; t: typeof adminCopy.en; submit: AdminSubmit; closeDialog: () => void }) {
+  return <form onSubmit={(event) => void submit(event, "/admin/creators", (data) => ({
+    agencyId: data.get("agencyId"),
+    displayName: data.get("displayName"),
+    slug: data.get("slug"),
+    bio: data.get("bio"),
+    rightsAttestation: { affirmedBy: data.get("affirmedBy") },
+  }), t.creatorCreated).then(closeDialog)}>
+    <label>{t.agency}<select name="agencyId" required><option value="">{t.chooseAgency}</option>{agencies.map((a) => <option value={a._id} key={a._id}>{a.name}</option>)}</select></label>
     <label>{t.creatorName}<input name="displayName" required /></label>
     <label>{t.creatorSlug}<input name="slug" pattern="[a-z0-9-]+" placeholder="creator-slug" required /></label>
     <label>{t.creatorBio}<textarea name="bio" /></label>
@@ -304,14 +385,14 @@ function AdminCreatorContent({ creator, products, assets, categories, t, selecte
     const target = index + direction; if (target < 0 || target >= selectedAssetIds.length) return;
     const next = [...selectedAssetIds]; [next[index], next[target]] = [next[target], next[index]]; setSelectedAssetIds(next);
   };
-  return <><nav><Link to="/admin">← {t.backToCatalogue}</Link></nav><section className="admin-intro"><p className="eyebrow">{t.content}</p><h2>{creator.displayName}</h2><p className="help">{creatorLinks(creator, t)}</p><p>{t.contentHelp}</p></section>
+  return <><nav><Link to="/admin">← {t.backToCatalogue}</Link></nav><section className="admin-intro"><p className="eyebrow">{t.content}</p><h2>{creator.displayName}</h2><p>{t.contentHelp}</p></section>
     <ContentGrid className="admin-content-grid" items={products} addCard={<PlusCard label={t.addContent} onClick={openNew} />} empty={<p className="empty">{t.contentEmpty}</p>} renderCopy={(product) => <><h2>{product.title}</h2><p>{product.status === "published" ? t.published : t.draft}</p><button type="button" onClick={() => openEdit(product as AdminProduct)}>Edit</button>{product.status !== "published" && <button type="button" onClick={() => void publish(product._id)}>{t.publish}</button>}<button type="button" className="plain-button" onClick={() => void archive(product._id)}>Archive</button></>} />
     {showDialog && <Dialog title={editing ? "Edit content" : t.newContent} close={closeDialog}><form onSubmit={(event) => void submit(event, editing ? `/admin/products/${editing._id}` : "/admin/products", (data) => ({ ...(editing ? {} : { agencyId: creator.agencyId, creatorId: creator._id }), title: data.get("title"), slug: data.get("slug"), description: data.get("description"), categoryIds: selectedCategoryIds, previewMode: data.get("previewMode"), previewAssetId: data.get("previewMode") === "none" ? null : data.get("previewAssetId") || undefined, mediaAssetIds: selectedAssetIds, amountMinor: euroToMinor(data.get("price")), currency: "EUR" }), editing ? t.saved : t.productCreated, editing ? "PATCH" : "POST").then(closeDialog)}><label>{t.productTitle}<input name="title" defaultValue={editing?.title} required /></label><label>{t.productSlug}<input name="slug" pattern="[a-z0-9-]+" placeholder="product-slug" defaultValue={editing?.slug} required /></label><label>{t.description}<textarea name="description" defaultValue={editing?.description} /></label><label>{t.price}<input name="price" type="text" inputMode="decimal" pattern="\d+(\.\d{1,2})?" defaultValue={editing ? (editing.amountMinor / 100).toFixed(2) : ""} required /></label><label>{t.preview}<select name="previewMode" defaultValue={editing?.previewMode ?? "blurred"}><option value="none">No preview</option><option value="blurred">Blurred preview</option><option value="visible">Visible preview</option></select></label><label>{t.preview}<select name="previewAssetId" defaultValue={editing?.previewAssetId ?? ""}><option value="">{t.noPreview}</option>{assets.filter((asset) => asset.purpose === "preview").map((asset) => <option key={asset._id} value={asset._id}>{asset.fileName}</option>)}</select></label><fieldset><legend>Categories</legend>{categories.filter((category) => category.status === "active").map((category) => <label key={category._id}><input type="checkbox" checked={selectedCategoryIds.includes(category._id)} onChange={(event) => setSelectedCategoryIds(event.target.checked ? [...selectedCategoryIds, category._id] : selectedCategoryIds.filter((id) => id !== category._id))} /> {category.name}</label>)}</fieldset><fieldset><legend>{t.privateFiles} (delivery order)</legend>{assets.filter((asset) => (asset.purpose ?? "delivery") === "delivery").map((asset) => <label key={asset._id}><input type="checkbox" checked={selectedAssetIds.includes(asset._id)} onChange={(event) => setSelectedAssetIds(event.target.checked ? [...selectedAssetIds, asset._id] : selectedAssetIds.filter((id) => id !== asset._id))} /> {asset.fileName}{selectedAssetIds.includes(asset._id) && <span><button type="button" className="plain-button" onClick={() => moveAsset(selectedAssetIds.indexOf(asset._id), -1)}>↑</button><button type="button" className="plain-button" onClick={() => moveAsset(selectedAssetIds.indexOf(asset._id), 1)}>↓</button></span>}</label>)}{!assets.length && <p className="help">{t.noMedia}</p>}</fieldset><button disabled={!selectedAssetIds.length}>{editing ? t.save : t.createProduct}</button></form><section className="upload-panel"><h3>{t.uploadMedia}</h3><form onSubmit={(event) => void upload(event, creator.agencyId)}><label>{t.uploadPurpose}<select name="purpose" defaultValue="delivery"><option value="delivery">{t.deliveryFile}</option><option value="preview">{t.previewFile}</option></select></label><label>{t.chooseFile}<input name="file" type="file" accept="image/*,video/*,audio/*,application/*" required /></label><button>{t.upload}</button></form><p className="help">{t.uploadHelp}</p></section></Dialog>}</>;
 }
 
-function AdminSetup({ agencies, agents, categories, t, submit, setDefaultAgent, load }: { agencies: AdminAgency[]; agents: AdminAgent[]; categories: AdminCategory[]; t: typeof adminCopy.en; submit: AdminSubmit; setDefaultAgent: (agent: AdminAgent) => void; load: () => void }) {
+function AdminSetup({ agencies, categories, t, submit, load }: { agencies: AdminAgency[]; categories: AdminCategory[]; t: typeof adminCopy.en; submit: AdminSubmit; load: () => void }) {
   const archiveCategory = async (id: string) => { await request(`/admin/categories/${id}`, { method: "DELETE" }); load(); };
-  return <section id="setup" className="setup-panel"><h2>{t.setup}</h2><p className="help">{t.setupEmpty}</p><article className="warning"><h3>{t.attributionTitle}</h3><p>{t.attributionHelp}</p><p>{t.secretWarning}</p></article><div className="setup-grid"><section><h3>{t.agency}</h3><form onSubmit={(event) => void submit(event, "/admin/agencies", (data) => ({ name: data.get("name"), higherPaysWorkspaceId: data.get("workspace") }))}><label>{t.agencyName}<input name="name" required /></label><label>{t.workspaceId}<input name="workspace" required /></label><p className="help">{t.workspaceHelp}</p><button>{t.createAgency}</button></form>{agencies.length ? agencies.map((agency) => <p key={agency._id}>{agency.name}</p>) : <p className="empty">{t.agencyEmpty}</p>}</section><section><h3>{t.agent}</h3><form onSubmit={(event) => void submit(event, "/admin/agents", (data) => ({ agencyId: data.get("agencyId"), name: data.get("name"), higherPaysAgentId: data.get("higherPaysAgentId") }))}><label>{t.agency}<select name="agencyId" required><option value="">{t.chooseAgency}</option>{agencies.map((agency) => <option value={agency._id} key={agency._id}>{agency.name}</option>)}</select></label><label>{t.agentName}<input name="name" required /></label><label>{t.agentId}<input name="higherPaysAgentId" required /></label><p className="help">{t.agentHelp}</p><button>{t.createAgent}</button></form>{agents.length ? agents.map((agent) => <p key={agent._id}>{agent.name} <button type="button" onClick={() => void setDefaultAgent(agent)}>{t.setCheckoutAgent}</button></p>) : <p className="empty">{t.agentEmpty}</p>}</section><section><h3>Categories</h3><form onSubmit={(event) => void submit(event, "/admin/categories", (data) => ({ agencyId: data.get("agencyId"), name: data.get("name"), slug: data.get("slug") }))}><label>{t.agency}<select name="agencyId" required><option value="">{t.chooseAgency}</option>{agencies.map((agency) => <option value={agency._id} key={agency._id}>{agency.name}</option>)}</select></label><label>Name<input name="name" required /></label><label>Slug<input name="slug" pattern="[a-z0-9-]+" required /></label><button>Create category</button></form>{categories.map((category) => <p key={category._id}>{category.name} ({category.status}) {category.status === "active" && <button type="button" className="plain-button" onClick={() => void archiveCategory(category._id)}>Archive</button>}</p>)}</section></div></section>;
+  return <section id="setup" className="setup-panel"><h2>{t.setup}</h2><p className="help">{t.setupEmpty}</p><article className="warning"><h3>{t.attributionTitle}</h3><p>{t.attributionHelp}</p><p>{t.secretWarning}</p></article><div className="setup-grid"><section><h3>{t.agency}</h3><form onSubmit={(event) => void submit(event, "/admin/agencies", (data) => ({ name: data.get("name") }))}><label>{t.agencyName}<input name="name" required /></label><button>{t.createAgency}</button></form>{agencies.length ? agencies.map((agency) => <p key={agency._id}>{agency.name}</p>) : <p className="empty">{t.agencyEmpty}</p>}</section><section><h3>Categories</h3><form onSubmit={(event) => void submit(event, "/admin/categories", (data) => ({ agencyId: data.get("agencyId"), name: data.get("name"), slug: data.get("slug") }))}><label>{t.agency}<select name="agencyId" required><option value="">{t.chooseAgency}</option>{agencies.map((agency) => <option value={agency._id} key={agency._id}>{agency.name}</option>)}</select></label><label>Name<input name="name" required /></label><label>Slug<input name="slug" pattern="[a-z0-9-]+" required /></label><button>Create category</button></form>{categories.map((category) => <p key={category._id}>{category.name} ({category.status}) {category.status === "active" && <button type="button" className="plain-button" onClick={() => void archiveCategory(category._id)}>Archive</button>}</p>)}</section></div></section>;
 }
 
 function Marketplace() {
@@ -328,5 +409,11 @@ function Marketplace() {
 }
 
 export function App() {
-  return <Routes><Route path="/admin" element={<Admin />} /><Route path="/admin/creators/:creatorId" element={<Admin />} /><Route path="*" element={<Marketplace />} /></Routes>;
+  return <Routes>
+    <Route path="/admin" element={<Admin />} />
+    <Route path="/admin/creators/:creatorId" element={<Admin />} />
+    <Route path="/admin/orders" element={<Admin />} />
+    <Route path="/admin/revenue" element={<Admin />} />
+    <Route path="*" element={<Marketplace />} />
+  </Routes>;
 }

@@ -14,7 +14,7 @@ const assetSnapshot = new Schema({
 
 const agencySchema = new Schema({
   name: { type: String, required: true, trim: true },
-  higherPaysWorkspaceId: { type: String, required: true, unique: true },
+  higherPaysWorkspaceId: { type: String, sparse: true, unique: true },
   defaultAgentId: { type: Schema.Types.ObjectId, ref: "Agent" },
   status: { type: String, enum: ["active", "archived"], default: "active" },
 }, timestamps);
@@ -33,7 +33,6 @@ const creatorSchema = new Schema({
   slug: { type: String, required: true, lowercase: true, trim: true, unique: true },
   bio: { type: String, default: "" },
   avatarAssetId: String,
-  // Links to the real HigherPays records; the creator here is a placeholder shell.
   higherPaysWorkspaceId: String,
   higherPaysAgentId: String,
   higherPaysAgentName: String,
@@ -41,11 +40,8 @@ const creatorSchema = new Schema({
   higherPaysAccountName: String,
   status: { type: String, enum: ["draft", "published", "archived"], default: "draft" },
   rightsAttestation: {
-    affirmedBy: String,
-    affirmedAt: Date,
-    statementVersion: String,
-    creatorIsAdult: Boolean,
-    distributionAuthorized: Boolean,
+    affirmedBy: String, affirmedAt: Date, statementVersion: String,
+    creatorIsAdult: Boolean, distributionAuthorized: Boolean,
   },
 }, timestamps);
 
@@ -89,15 +85,10 @@ productSchema.index({ agencyId: 1, status: 1, createdAt: -1 });
 
 const telegramUserSchema = new Schema({
   telegramId: { type: String, required: true, unique: true },
-  chatId: String,
-  username: String,
-  firstName: String,
-  lastName: String,
+  chatId: String, username: String, firstName: String, lastName: String,
   locale: { type: String, enum: ["en", "he", "fr", "es", "de", "pt-BR", "pt-PT"], default: "en" },
   localeOverride: { type: String, enum: ["en", "he", "fr", "es", "de", "pt-BR", "pt-PT"] },
-  ageConfirmedAt: Date,
-  ageConfirmationVersion: String,
-  deliveryBlockedAt: Date,
+  ageConfirmedAt: Date, ageConfirmationVersion: String, deliveryBlockedAt: Date,
   lastSeenAt: { type: Date, default: Date.now },
 }, timestamps);
 
@@ -132,9 +123,9 @@ const orderLineSchema = new Schema({
 const orderSchema = new Schema({
   publicId: { type: String, required: true, unique: true },
   agencyId: { type: Schema.Types.ObjectId, ref: "Agency", required: true, index: true },
-  agentId: { type: Schema.Types.ObjectId, ref: "Agent", required: true, index: true },
-  higherPaysWorkspaceId: { type: String, required: true },
-  higherPaysAgentId: { type: String, required: true },
+  agentId: { type: Schema.Types.ObjectId, ref: "Agent", index: true },
+  higherPaysWorkspaceId: String,
+  higherPaysAgentId: String,
   higherPaysAccountId: String,
   telegramUserId: { type: Schema.Types.ObjectId, ref: "TelegramUser", required: true, index: true },
   cartId: { type: Schema.Types.ObjectId, ref: "Cart", required: true, unique: true },
@@ -145,6 +136,7 @@ const orderSchema = new Schema({
   currency: { type: String, required: true, uppercase: true },
   paymentStatus: { type: String, enum: ["pending", "paid", "failed", "expired", "refunded", "charged_back"], default: "pending", index: true },
   fulfillmentStatus: { type: String, enum: ["not_ready", "queued", "partial", "delivered", "failed", "revoked"], default: "not_ready" },
+  checkoutUrl: String,
   higherPaysPaymentLinkReference: { type: String, sparse: true, unique: true },
   higherPaysCheckoutUrl: String,
   higherPaysPaymentId: String,
@@ -156,7 +148,7 @@ const orderSchema = new Schema({
 
 const paymentAttemptSchema = new Schema({
   orderId: { type: Schema.Types.ObjectId, ref: "Order", required: true, index: true },
-  provider: { type: String, enum: ["higherpays"], default: "higherpays" },
+  provider: { type: String, enum: ["higherpays", "mantapay"], default: "mantapay" },
   providerEventId: { type: String, sparse: true, unique: true },
   providerTransactionId: { type: String, sparse: true, unique: true },
   status: { type: String, enum: ["created", "pending", "approved", "declined", "chargeback"], default: "created" },
@@ -179,19 +171,16 @@ const deliverySchema = new Schema({
   assetId: { type: String, required: true },
   status: { type: String, enum: ["queued", "sending", "sent", "retry", "failed"], default: "queued", index: true },
   attempts: { type: Number, default: 0 },
-  telegramMessageId: Number,
-  error: String,
-  sentAt: Date,
+  telegramMessageId: Number, error: String, sentAt: Date,
 }, timestamps);
 deliverySchema.index({ entitlementId: 1, assetId: 1 }, { unique: true });
 
 const webhookEventSchema = new Schema({
-  provider: { type: String, default: "higherpays" },
+  provider: { type: String, default: "mantapay" },
   providerEventId: { type: String, required: true },
   type: { type: String, required: true },
   signatureValid: { type: Boolean, required: true },
-  processedAt: Date,
-  processingError: String,
+  processedAt: Date, processingError: String,
   payload: Schema.Types.Mixed,
 }, timestamps);
 webhookEventSchema.index({ provider: 1, providerEventId: 1, type: 1 }, { unique: true });
@@ -201,9 +190,7 @@ const auditEventSchema = new Schema({
   actorId: String,
   action: { type: String, required: true },
   entityType: { type: String, required: true },
-  entityId: String,
-  metadata: Schema.Types.Mixed,
-  ip: String,
+  entityId: String, metadata: Schema.Types.Mixed, ip: String,
 }, timestamps);
 
 export const Agency = models.Agency || model("Agency", agencySchema);

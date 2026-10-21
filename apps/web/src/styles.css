@@ -108,6 +108,26 @@ fieldset input { width: auto; margin-inline-end: 7px; }
 .customer-shell[dir="rtl"] .blur-label { right: 12px; left: auto; }
 .customer-main .creator-grid, .customer-main .reel-grid { margin: 0; padding: 0; background: transparent; border: 0; border-radius: 0; }
 
+/* Admin: orders table + revenue cards */
+.admin-table-wrap { overflow-x: auto; margin: 12px 0 24px; }
+.admin-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+.admin-table th { text-align: left; padding: 10px 12px; border-bottom: 2px solid #512a48; color: #f9a9db; font-weight: 700; text-transform: uppercase; font-size: .72rem; letter-spacing: .06em; }
+.admin-table td { padding: 10px 12px; border-bottom: 1px solid #2a1828; }
+.admin-table tr:hover td { background: #21151f; }
+.status-badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: .75rem; font-weight: 700; }
+.status-paid { background: #15392c; color: #34d399; }
+.status-pending { background: #3a2f14; color: #fbbf24; }
+.status-expired, .status-failed { background: #3a1414; color: #f87171; }
+.status-refunded, .status-charged_back { background: #2a1a3a; color: #c084fc; }
+.order-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+.filter-btn { padding: 6px 14px; border-radius: 99px; font-size: .78rem; font-weight: 700; background: #21151f; border: 1px solid #66445c; color: #ffd5ef; cursor: pointer; }
+.filter-btn.active { background: linear-gradient(100deg, #ff6bca, #a77cff); color: #1b0d1a; border-color: transparent; }
+.revenue-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; margin: 14px 0; }
+.revenue-card { background: #21151f; border: 1px solid #512a48; border-radius: 16px; padding: 18px; text-align: center; }
+.revenue-value { font-size: 1.7rem; font-weight: 800; color: #fff; font-variant-numeric: tabular-nums; }
+.revenue-label { font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: #f9a9db; margin-top: 4px; }
+[dir="rtl"] .admin-table th { text-align: right; }
+
 @media (min-width: 600px) {
   .customer-appbar { padding-inline: 24px; }
   .customer-main { padding-inline: 24px; }
