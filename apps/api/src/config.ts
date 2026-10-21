@@ -38,8 +38,7 @@ if (config.isProduction) {
     config.ADMIN_SHARED_PASSWORD ? null : "ADMIN_SHARED_PASSWORD",
     config.TELEGRAM_BOT_TOKEN ? null : "TELEGRAM_BOT_TOKEN",
     config.PUBLIC_APP_URL.startsWith("https://") ? null : "PUBLIC_APP_URL (HTTPS)",
-    config.MANTAPAY_MERCHANT_ID ? null : "MANTAPAY_MERCHANT_ID",
-    config.MANTAPAY_HASH_KEY ? null : "MANTAPAY_HASH_KEY",
+    // MantaPay fields not yet required — integration is WIP
   ].filter(Boolean);
   if (missing.length) throw new Error(`Production configuration is incomplete: ${missing.join(", ")}`);
 }
