@@ -19,6 +19,9 @@ const env = z.object({
   S3_ACCESS_KEY_ID: z.string().optional(),
   S3_SECRET_ACCESS_KEY: z.string().optional(),
   S3_FORCE_PATH_STYLE: z.coerce.boolean().default(true),
+  HIGHERPAYS_API_BASE: z.string().url().optional(),
+  HIGHERPAYS_MARKETPLACE_API_KEY: z.string().optional(),
+  HIGHERPAYS_EVENT_SIGNING_SECRET: z.string().optional(),
   MANTAPAY_MERCHANT_ID: z.string().optional(),
   MANTAPAY_HASH_KEY: z.string().optional(),
   MANTAPAY_HOSTED_BASE: z.string().url().default("https://uiservices.mantapay.biz"),
@@ -38,8 +41,9 @@ if (config.isProduction) {
     config.ADMIN_SHARED_PASSWORD ? null : "ADMIN_SHARED_PASSWORD",
     config.TELEGRAM_BOT_TOKEN ? null : "TELEGRAM_BOT_TOKEN",
     config.PUBLIC_APP_URL.startsWith("https://") ? null : "PUBLIC_APP_URL (HTTPS)",
-    config.MANTAPAY_MERCHANT_ID ? null : "MANTAPAY_MERCHANT_ID",
-    config.MANTAPAY_HASH_KEY ? null : "MANTAPAY_HASH_KEY",
+    config.HIGHERPAYS_API_BASE ? null : "HIGHERPAYS_API_BASE",
+    config.HIGHERPAYS_MARKETPLACE_API_KEY ? null : "HIGHERPAYS_MARKETPLACE_API_KEY",
+    config.HIGHERPAYS_EVENT_SIGNING_SECRET ? null : "HIGHERPAYS_EVENT_SIGNING_SECRET",
   ].filter(Boolean);
   if (missing.length) throw new Error(`Production configuration is incomplete: ${missing.join(", ")}`);
 }

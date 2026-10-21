@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
-import { Agency, Agent, Cart, Category, Creator, Delivery, Entitlement, MediaAsset, Order, PaymentAttempt, Product, TelegramUser } from "./models.js";
-import { createHigherPaysCheckout, type HigherPaysLifecycleEvent, type HigherPaysOrder } from "./higherpays.js";
+import { Agency, Cart, Category, Creator, Delivery, Entitlement, MediaAsset, Order, PaymentAttempt, Product, TelegramUser } from "./models.js";
+import { createCheckoutForOrder, type MantapayStatus, type MantapayWebhookPayment } from "./mantapay.js";
 import { deliverEntitlements } from "./telegram.js";
 import { orderPublicId, sumMinor } from "./commerce.js";
 
@@ -10,7 +10,7 @@ export async function createOrderForCart(telegramUserId: string) {
   const cart = await Cart.findOne({ telegramUserId, status: "active" });
   if (!cart?.items.length) throw new Error("cart_empty");
   const existing = await Order.findOne({ cartId: cart._id });
-  if (existing?.higherPaysCheckoutUrl) return existing;
+  if (existing?.checkoutUrl) return existing;
   const productIds = cart.items.map((item: any) => item.productId);
   const products = await Product.find({ _id: { $in: productIds }, status: "published" });
   if (products.length !== productIds.length) throw new Error("unavailable_product");
@@ -40,25 +40,17 @@ export async function createOrderForCart(telegramUserId: string) {
       categoryIds: categories.map((category: any) => String(category._id)),
       categoryNames: categories.map((category: any) => category.name),
       amountMinor: product.amountMinor, currency: product.currency,
-      higherPaysAccountId: creator?.higherPaysAccountId || undefined,
       assets: assets.map((asset: any) => ({ assetId: String(asset._id), storageKey: asset.storageKey, fileName: asset.fileName, mimeType: asset.mimeType, telegramFileId: asset.telegramFileId })),
     };
   }));
   const subtotalMinor = sumMinor(lines.map((line) => line.amountMinor));
-
-  // Vault Sales has no agent attribution.  Resolve one only for the
-  // agency.defaultAgentId constraint that Order.agentId still requires.
-  const defaultAgent = agency.defaultAgentId ? await Agent.findById(agency.defaultAgentId) : null;
-  if (!defaultAgent?.active) throw new Error("agency_checkout_not_configured");
 
   let order = existing;
   if (!order) {
     try {
       order = await Order.create({
         publicId: orderPublicId(String(cart._id)), checkoutIdempotencyKey: `cart:${cart._id}`,
-        agencyId: agency._id, agentId: defaultAgent._id,
-        higherPaysWorkspaceId: agency.higherPaysWorkspaceId,
-        higherPaysAgentId: defaultAgent.higherPaysAgentId,
+        agencyId: agency._id,
         telegramUserId, cartId: cart._id, lines, subtotalMinor,
         totalMinor: subtotalMinor,
         currency: cart.currency, returnNonce: crypto.randomBytes(18).toString("base64url"),
@@ -71,61 +63,69 @@ export async function createOrderForCart(telegramUserId: string) {
     }
   }
   try {
-    const checkout = await createHigherPaysCheckout(order);
-    if (checkout.marketplaceOrderId !== order.publicId || checkout.amountMinor !== order.subtotalMinor || checkout.currency !== order.currency) {
-      throw new Error("higherpays_checkout_mismatch");
-    }
-    order.higherPaysPaymentLinkReference = checkout.paymentLinkReference;
-    order.higherPaysCheckoutUrl = checkout.checkoutUrl;
+    const checkout = createCheckoutForOrder(order);
+    order.checkoutUrl = checkout.checkoutUrl;
     await order.save();
   } catch (error) {
     throw error;
   }
   await PaymentAttempt.updateOne(
-    { orderId: order._id, provider: "higherpays", status: "created" },
-    { $setOnInsert: { orderId: order._id, provider: "higherpays", status: "created" } },
+    { orderId: order._id, provider: "mantapay", status: "created" },
+    { $setOnInsert: { orderId: order._id, provider: "mantapay", status: "created" } },
     { upsert: true },
   );
   await Cart.updateOne({ _id: cart._id, status: "active" }, { $set: { status: "checked_out" } });
   return order;
 }
 
-export async function applyHigherPaysEvent(input: HigherPaysLifecycleEvent | HigherPaysOrder) {
-  const order = await Order.findOne({ publicId: input.marketplaceOrderId });
+export async function applyMantapayPayment(payment: MantapayWebhookPayment) {
+  if (!payment.referenceId) throw new Error("missing_order_reference");
+  const order = await Order.findOne({ publicId: payment.referenceId });
   if (!order) throw new Error("unknown_order");
-  if (input.currency !== order.currency || input.amountMinor !== order.subtotalMinor
-    || input.paymentLinkReference !== order.higherPaysPaymentLinkReference) throw new Error("higherpays_order_mismatch");
-  const eventType = "type" in input ? input.type : undefined;
-  if (input.status === "refunded" || input.status === "charged_back" || eventType === "payment.refunded" || eventType === "payment.chargeback") {
-    const status = input.status === "charged_back" || eventType === "payment.chargeback" ? "charged_back" : "refunded";
-    const revoked = await Order.findOneAndUpdate({ _id: order._id, paymentStatus: "paid" }, { $set: { paymentStatus: status, fulfillmentStatus: "revoked" } }, { new: true });
-    if (revoked) await Entitlement.updateMany({ orderId: order._id }, { $set: { status: "revoked" } });
-    return revoked ?? order;
-  }
-  if (input.status === "expired" || input.status === "cancelled") {
+
+  if (payment.status === "declined" || payment.status === "abandoned") {
     await PaymentAttempt.findOneAndUpdate(
-      { providerEventId: "eventId" in input ? input.eventId : `reconcile:${input.providerTransactionId ?? "unknown"}` },
-      { $setOnInsert: { orderId: order._id, provider: "higherpays", providerEventId: "eventId" in input ? input.eventId : undefined, providerTransactionId: input.providerTransactionId }, $set: { status: "declined", grossMinor: input.amountMinor, rawPayload: input } },
+      { providerTransactionId: payment.transactionId },
+      {
+        $setOnInsert: { orderId: order._id, provider: "mantapay", providerTransactionId: payment.transactionId },
+        $set: { status: "declined", replyCode: payment.replyCode, grossMinor: payment.grossAmount ? Math.round(payment.grossAmount * 100) : null, rawPayload: payment.fields },
+      },
       { upsert: true },
     );
-    return await Order.findOneAndUpdate(
-      { _id: order._id, paymentStatus: "pending" },
-      { $set: { paymentStatus: "failed", fulfillmentStatus: "not_ready" } },
-      { new: true },
-    ) ?? order;
+    // Don't mark the order as failed for a single decline — customer may retry
+    // on the hosted page. The maintenance loop expires orders past their deadline.
+    return order;
   }
-  if (input.status !== "approved" && eventType !== "payment.approved") return order;
+
+  if (payment.status === "pending") {
+    await PaymentAttempt.findOneAndUpdate(
+      { providerTransactionId: payment.transactionId },
+      {
+        $setOnInsert: { orderId: order._id, provider: "mantapay", providerTransactionId: payment.transactionId },
+        $set: { status: "pending", replyCode: payment.replyCode, rawPayload: payment.fields },
+      },
+      { upsert: true },
+    );
+    return order;
+  }
+
+  if (payment.status !== "approved") return order;
+
   const updated = await Order.findOneAndUpdate(
     { _id: order._id, paymentStatus: { $in: ["pending", "expired"] } },
-    { $set: { paymentStatus: "paid", paidAt: new Date(), fulfillmentStatus: "queued", providerTransactionId: input.providerTransactionId, higherPaysPaymentId: "paymentId" in input ? input.paymentId : undefined } },
+    { $set: { paymentStatus: "paid", paidAt: new Date(), fulfillmentStatus: "queued", providerTransactionId: payment.transactionId } },
     { new: true },
   );
   await PaymentAttempt.findOneAndUpdate(
-    { providerEventId: "eventId" in input ? input.eventId : `reconcile:${input.providerTransactionId ?? "unknown"}` },
-    { $setOnInsert: { orderId: order._id, provider: "higherpays", providerEventId: "eventId" in input ? input.eventId : undefined, providerTransactionId: input.providerTransactionId }, $set: { status: "approved", grossMinor: input.amountMinor, rawPayload: input } },
+    { providerTransactionId: payment.transactionId },
+    {
+      $setOnInsert: { orderId: order._id, provider: "mantapay", providerTransactionId: payment.transactionId },
+      $set: { status: "approved", replyCode: payment.replyCode, grossMinor: payment.grossAmount ? Math.round(payment.grossAmount * 100) : null, rawPayload: payment.fields },
+    },
     { upsert: true },
   );
   if (!updated) return order;
+
   const entitlementRecords = updated.lines.map((line: any) => ({
     telegramUserId: updated.telegramUserId, orderId: updated._id, orderLineId: String(line._id), assets: line.assets, status: "active",
   }));
@@ -140,4 +140,25 @@ export async function applyHigherPaysEvent(input: HigherPaysLifecycleEvent | Hig
   await Promise.all(updated.lines.map((line: any) => Product.updateOne({ _id: line.productId }, { $inc: { purchasesCount: 1 } })));
   void deliverEntitlements(String(updated._id));
   return updated;
+}
+
+// Reconciliation: check MantaPay status and apply if approved.
+export async function reconcileOrder(orderId: string, statusResult: { status: MantapayStatus; transaction: any }) {
+  if (statusResult.status === "approved" && statusResult.transaction) {
+    return applyMantapayPayment({
+      kind: "payment",
+      transactionId: statusResult.transaction.transId,
+      referenceId: statusResult.transaction.order ?? orderId,
+      replyCode: statusResult.transaction.replyCode,
+      replyDesc: statusResult.transaction.replyDesc,
+      status: "approved",
+      grossAmount: statusResult.transaction.amount,
+      currency: statusResult.transaction.currency,
+      clientEmail: null,
+      clientName: null,
+      occurredAt: statusResult.transaction.date,
+      fields: {},
+    });
+  }
+  return null;
 }
