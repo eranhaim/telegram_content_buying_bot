@@ -103,13 +103,13 @@ async function main() {
       continue;
     }
 
-    const deliveryAsset = await MediaAsset.findById(deliveryAssetId).lean();
+    const deliveryAsset: any = await MediaAsset.findById(deliveryAssetId).lean();
     if (!deliveryAsset) {
       console.log(`  SKIP ${product.title}: delivery asset not found`);
       continue;
     }
 
-    const telescopeKey = deliveryAsset.storageKey as string;
+    const telescopeKey: string = deliveryAsset.storageKey;
 
     // Extract the Telescope profile ID from the storage key.
     const profileId = telescopeKey.match(/profiles\/([a-f0-9]{24})/)?.[1];
@@ -133,7 +133,7 @@ async function main() {
     const thumbnailKey = matchingMedia?.thumbnail;
 
     // 1. Copy the video file to marketplace MinIO (for delivery).
-    const safeFileName = (deliveryAsset.fileName as string).replace(/[^A-Za-z0-9._-]/g, "_");
+    const safeFileName: string = deliveryAsset.fileName.replace(/[^A-Za-z0-9._-]/g, "_");
     const marketplaceDeliveryKey = `agency/${product.agencyId}/assets/${deliveryAssetId}/${safeFileName}`;
 
     // Skip if this asset was already migrated (key starts with "agency/").
@@ -141,7 +141,7 @@ async function main() {
       console.log(`  – Already migrated: ${product.title}`);
     } else {
       try {
-        const bytes = await copyObject(telescopeKey, marketplaceDeliveryKey, deliveryAsset.mimeType as string);
+        const bytes = await copyObject(telescopeKey, marketplaceDeliveryKey, deliveryAsset.mimeType);
         await MediaAsset.updateOne({ _id: deliveryAssetId }, { $set: { storageKey: marketplaceDeliveryKey, bytes } });
         videosCopied++;
         console.log(`  ✓ Video copied: ${product.title} (${(bytes / 1_000_000).toFixed(1)} MB)`);
