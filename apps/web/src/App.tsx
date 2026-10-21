@@ -1,5 +1,5 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { Link, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { clearToken, Creator, euroToMinor, money, Product, request, setToken } from "./api";
 import { adminCopy, adminDirection, adminLanguage, type AdminLanguage } from "./admin-i18n";
 import { customerCopy, customerDirection, customerLocale, customerLocales, type CustomerLocale } from "./customer-i18n";
@@ -64,8 +64,11 @@ function useTelegramSession() {
 
 type CustomerText = typeof customerCopy.en;
 
-function CustomerShell({ locale, setLocale, children }: { locale: CustomerLocale; setLocale: (locale: CustomerLocale) => void; children: ReactNode }) {
+function CustomerShell({ locale, setLocale, cartCount, children }: { locale: CustomerLocale; setLocale: (locale: CustomerLocale) => void; cartCount: number; children: ReactNode }) {
   const t = customerCopy[locale];
+  const navigate = useNavigate();
+  const location = useLocation();
+  const isHome = location.pathname === "/";
   useEffect(() => {
     document.documentElement.lang = locale;
     document.documentElement.dir = customerDirection(locale);
@@ -76,7 +79,7 @@ function CustomerShell({ locale, setLocale, children }: { locale: CustomerLocale
     setLocale(customerLocale(result.locale));
   };
   return <div className="customer-shell" lang={locale} dir={customerDirection(locale)}>
-    <header className="customer-header"><span className="customer-brand">{t.privateMarketplace}</span><label className="customer-language"><span className="sr-only">{t.language}</span><select aria-label={t.language} value={locale} onChange={(event) => void overrideLocale(event.target.value)}>{customerLocales.map((value) => <option key={value} value={value}>{value}</option>)}</select></label></header>
+    <header className="customer-appbar">{!isHome ? <button type="button" className="appbar-back" onClick={() => navigate(-1)} aria-label="Back"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg></button> : <span className="appbar-spacer" />}<label className="appbar-language"><span className="sr-only">{t.language}</span><select aria-label={t.language} value={locale} onChange={(event) => void overrideLocale(event.target.value)}>{customerLocales.map((value) => <option key={value} value={value}>{value}</option>)}</select></label><Link className="appbar-cart" to="/cart" aria-label={t.cart}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1" /><circle cx="20" cy="21" r="1" /><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" /></svg>{cartCount > 0 && <span className="appbar-cart-badge">{cartCount}</span>}</Link></header>
     {children}
     <nav className="customer-nav" aria-label={t.privateMarketplace}><Link to="/">{t.discover}</Link><Link to="/guide">{t.guide}</Link><Link to="/cart">{t.cart}</Link><Link to="/library">{t.purchases}</Link></nav>
   </div>;
@@ -109,14 +112,14 @@ function ContentGrid({ items, add, empty, renderCopy, addCard, className = "", t
   </article>)}{addCard}{!items.length && empty}</section>;
 }
 
-function CreatorPage({ t, locale }: { t: CustomerText; locale: CustomerLocale }) {
+function CreatorPage({ t, locale, onCartChange }: { t: CustomerText; locale: CustomerLocale; onCartChange: () => void }) {
   const { slug } = useParams();
   const [items, setItems] = useState<Product[]>([]);
   const [creator, setCreator] = useState<Creator | null>(null);
   const [notice, setNotice] = useState("");
   useEffect(() => { void request<{ creator: Creator; items: Product[] }>(`/catalog/creators/${slug}/products`).then((result) => { setCreator(result.creator); setItems(result.items); }).catch(() => setNotice(t.creatorUnavailable)); }, [slug, t.creatorUnavailable]);
   const add = async (productId: string) => {
-    try { await request("/cart/items", { method: "POST", body: JSON.stringify({ productId }) }); setNotice(t.addedToCart); }
+    try { await request("/cart/items", { method: "POST", body: JSON.stringify({ productId }) }); setNotice(t.addedToCart); onCartChange(); }
     catch { setNotice(t.cartUpdateFailed); }
   };
   return <main className="customer-main">
@@ -128,12 +131,12 @@ function CreatorPage({ t, locale }: { t: CustomerText; locale: CustomerLocale })
 }
 
 type Cart = { _id?: string; currency: string; items: { productId: string; titleSnapshot: string; creatorNameSnapshot: string; priceMinorSnapshot: number }[] };
-function CartPage({ t, locale }: { t: CustomerText; locale: CustomerLocale }) {
+function CartPage({ t, locale, onCartChange }: { t: CustomerText; locale: CustomerLocale; onCartChange: () => void }) {
   const [cart, setCart] = useState<Cart | null>(null);
   const navigate = useNavigate();
   const load = () => void request<Cart>("/cart").then(setCart);
   useEffect(load, []);
-  const remove = async (productId: string) => { await request(`/cart/items/${productId}`, { method: "DELETE" }); load(); };
+  const remove = async (productId: string) => { await request(`/cart/items/${productId}`, { method: "DELETE" }); load(); onCartChange(); };
   const checkout = async () => {
     try {
       await request("/me/age-confirmation", { method: "POST", body: JSON.stringify({ accepted: true, version: "2026-09" }) });
@@ -308,10 +311,15 @@ function AdminSetup({ agencies, agents, categories, t, submit, setDefaultAgent, 
 
 function Marketplace() {
   const { ready, error, locale, setLocale } = useTelegramSession();
+  const [cartCount, setCartCount] = useState(0);
   const t = customerCopy[locale];
+  const refreshCartCount = useCallback(() => {
+    void request<Cart>("/cart").then((cart) => setCartCount(cart?.items?.length ?? 0)).catch(() => {});
+  }, []);
+  useEffect(() => { if (ready) refreshCartCount(); }, [ready, refreshCartCount]);
   if (error) return <main className="customer-main"><h1>{t.privateMarketplace}</h1><p>{t.sessionError}</p></main>;
   if (!ready) return <main className="customer-main"><h1>{t.privateMarketplace}</h1><p>{t.sessionVerifying}</p></main>;
-  return <CustomerShell locale={locale} setLocale={setLocale}><Routes><Route path="/" element={<Catalog t={t} />} /><Route path="/guide" element={<Guide t={t} />} /><Route path="/creators/:slug" element={<CreatorPage t={t} locale={locale} />} /><Route path="/cart" element={<CartPage t={t} locale={locale} />} /><Route path="/library" element={<Library t={t} />} /><Route path="/payment-complete" element={<PaymentComplete t={t} />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes></CustomerShell>;
+  return <CustomerShell locale={locale} setLocale={setLocale} cartCount={cartCount}><Routes><Route path="/" element={<Catalog t={t} />} /><Route path="/guide" element={<Guide t={t} />} /><Route path="/creators/:slug" element={<CreatorPage t={t} locale={locale} onCartChange={refreshCartCount} />} /><Route path="/cart" element={<CartPage t={t} locale={locale} onCartChange={refreshCartCount} />} /><Route path="/library" element={<Library t={t} />} /><Route path="/payment-complete" element={<PaymentComplete t={t} />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes></CustomerShell>;
 }
 
 export function App() {
