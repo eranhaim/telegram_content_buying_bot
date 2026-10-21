@@ -64,7 +64,23 @@ export function verifyHigherPaysEvent(timestamp: string | undefined, eventId: st
   return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
 }
 
+export type CheckoutLine = {
+  lineId: string;
+  accountId: string;
+  amountMinor: number;
+  label?: string;
+};
+
 export function createHigherPaysCheckout(order: any) {
+  const lines: CheckoutLine[] = (order.lines ?? [])
+    .filter((line: any) => line.higherPaysAccountId)
+    .map((line: any) => ({
+      lineId: String(line._id),
+      accountId: line.higherPaysAccountId,
+      amountMinor: line.amountMinor,
+      label: line.productTitle,
+    }));
+
   return request<HigherPaysOrder>("/integrations/marketplace/orders", {
     method: "POST",
     body: JSON.stringify({
@@ -72,6 +88,7 @@ export function createHigherPaysCheckout(order: any) {
       amountMinor: order.subtotalMinor,
       currency: order.currency,
       returnUrl: new URL(`/payment-complete?order=${order.publicId}&state=${order.returnNonce}`, config.PUBLIC_APP_URL).toString(),
+      ...(lines.length > 0 ? { lines } : {}),
     }),
   });
 }

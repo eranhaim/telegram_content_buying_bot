@@ -17,6 +17,7 @@ type CustomerCopy = {
   purchasesTitle: string; noPurchases: string; delivery: string; retryDelivery: string; retryQueued: string;
   paymentChecking: string; paymentConfirmed: string; paymentProcessing: string; paymentReturn: string;
   sessionVerifying: string; sessionError: string; close: string;
+  ageText: string;
   status: Record<string, string>;
 };
 
@@ -29,6 +30,7 @@ export const customerCopy: Record<CustomerLocale, CustomerCopy> = {
     cartTitle: "Your cart", emptyCart: "Your cart is empty.", total: "Total", secureCheckout: "Continue to secure checkout", continueBrowsing: "Continue browsing", remove: "Remove",
     purchasesTitle: "Your purchases", noPurchases: "You have no purchases yet.", delivery: "Delivery", retryDelivery: "Retry delivery", retryQueued: "Delivery retry requested.", paymentChecking: "Checking your payment…", paymentConfirmed: "Payment confirmed. Your content is being delivered in Telegram.", paymentProcessing: "Payment is still processing.", paymentReturn: "Return to Telegram and check Purchases shortly.",
     sessionVerifying: "Verifying your Telegram session…", sessionError: "Telegram could not verify this Mini App session. Close this page and reopen the catalog from @OnlyContentMenuBot.", close: "Close",
+    ageText: "I confirm that I am at least 18 years old.",
     status: { delivered: "Delivered", queued: "Queued", partial: "Partially delivered", failed: "Delivery failed", not_ready: "Preparing delivery" },
   },
   he: {
@@ -39,6 +41,7 @@ export const customerCopy: Record<CustomerLocale, CustomerCopy> = {
     cartTitle: "העגלה שלך", emptyCart: "העגלה שלך ריקה.", total: "סה״כ", secureCheckout: "המשך לתשלום מאובטח", continueBrowsing: "המשך גלישה", remove: "הסרה",
     purchasesTitle: "הרכישות שלך", noPurchases: "אין לך עדיין רכישות.", delivery: "מסירה", retryDelivery: "ניסיון מסירה חוזר", retryQueued: "התבקש ניסיון מסירה חוזר.", paymentChecking: "בודקים את התשלום…", paymentConfirmed: "התשלום אושר. התוכן שלך נשלח ב-Telegram.", paymentProcessing: "התשלום עדיין בעיבוד.", paymentReturn: "חזרו ל-Telegram ובדקו את הרכישות בקרוב.",
     sessionVerifying: "מאמתים את הפעלת Telegram…", sessionError: "לא ניתן לאמת את הפעלת Telegram. סגרו את הדף ופתחו את הקטלוג מחדש מתוך @OnlyContentMenuBot.", close: "סגירה",
+    ageText: "אני מאשר/ת שגילי לפחות 18.",
     status: { delivered: "נמסר", queued: "ממתין למסירה", partial: "נמסר חלקית", failed: "המסירה נכשלה", not_ready: "מכינים למסירה" },
   },
   fr: {
@@ -49,6 +52,7 @@ export const customerCopy: Record<CustomerLocale, CustomerCopy> = {
     cartTitle: "Votre panier", emptyCart: "Votre panier est vide.", total: "Total", secureCheckout: "Continuer vers le paiement sécurisé", continueBrowsing: "Continuer à parcourir", remove: "Retirer",
     purchasesTitle: "Vos achats", noPurchases: "Vous n’avez pas encore d’achats.", delivery: "Livraison", retryDelivery: "Réessayer la livraison", retryQueued: "Nouvelle livraison demandée.", paymentChecking: "Vérification du paiement…", paymentConfirmed: "Paiement confirmé. Votre contenu est livré dans Telegram.", paymentProcessing: "Le paiement est toujours en cours.", paymentReturn: "Retournez dans Telegram et consultez bientôt Achats.",
     sessionVerifying: "Vérification de votre session Telegram…", sessionError: "Telegram n’a pas pu vérifier cette session. Fermez cette page et rouvrez le catalogue depuis @OnlyContentMenuBot.", close: "Fermer",
+    ageText: "Je confirme avoir au moins 18 ans.",
     status: { delivered: "Livré", queued: "En attente", partial: "Partiellement livré", failed: "Échec de livraison", not_ready: "Préparation de la livraison" },
   },
   es: {
@@ -59,6 +63,7 @@ export const customerCopy: Record<CustomerLocale, CustomerCopy> = {
     cartTitle: "Tu carrito", emptyCart: "Tu carrito está vacío.", total: "Total", secureCheckout: "Continuar al pago seguro", continueBrowsing: "Seguir explorando", remove: "Eliminar",
     purchasesTitle: "Tus compras", noPurchases: "Aún no tienes compras.", delivery: "Entrega", retryDelivery: "Reintentar entrega", retryQueued: "Se solicitó reintentar la entrega.", paymentChecking: "Comprobando tu pago…", paymentConfirmed: "Pago confirmado. Tu contenido se está entregando en Telegram.", paymentProcessing: "El pago sigue procesándose.", paymentReturn: "Vuelve a Telegram y revisa Compras en breve.",
     sessionVerifying: "Verificando tu sesión de Telegram…", sessionError: "Telegram no pudo verificar esta sesión. Cierra esta página y vuelve a abrir el catálogo desde @OnlyContentMenuBot.", close: "Cerrar",
+    ageText: "Confirmo que tengo al menos 18 años.",
     status: { delivered: "Entregado", queued: "En espera", partial: "Entregado parcialmente", failed: "Entrega fallida", not_ready: "Preparando la entrega" },
   },
   de: {
@@ -69,6 +74,7 @@ export const customerCopy: Record<CustomerLocale, CustomerCopy> = {
     cartTitle: "Dein Warenkorb", emptyCart: "Dein Warenkorb ist leer.", total: "Gesamt", secureCheckout: "Zur sicheren Zahlung", continueBrowsing: "Weiter stöbern", remove: "Entfernen",
     purchasesTitle: "Deine Käufe", noPurchases: "Du hast noch keine Käufe.", delivery: "Lieferung", retryDelivery: "Lieferung erneut versuchen", retryQueued: "Erneute Lieferung angefordert.", paymentChecking: "Zahlung wird geprüft…", paymentConfirmed: "Zahlung bestätigt. Deine Inhalte werden in Telegram geliefert.", paymentProcessing: "Die Zahlung wird noch verarbeitet.", paymentReturn: "Kehre zu Telegram zurück und prüfe bald Käufe.",
     sessionVerifying: "Telegram-Sitzung wird geprüft…", sessionError: "Telegram konnte diese Mini-App-Sitzung nicht prüfen. Schließe die Seite und öffne den Katalog erneut über @OnlyContentMenuBot.", close: "Schließen",
+    ageText: "Ich bestätige, dass ich mindestens 18 Jahre alt bin.",
     status: { delivered: "Geliefert", queued: "Ausstehend", partial: "Teilweise geliefert", failed: "Lieferung fehlgeschlagen", not_ready: "Lieferung wird vorbereitet" },
   },
   "pt-BR": {
@@ -79,6 +85,7 @@ export const customerCopy: Record<CustomerLocale, CustomerCopy> = {
     cartTitle: "Seu carrinho", emptyCart: "Seu carrinho está vazio.", total: "Total", secureCheckout: "Continuar para pagamento seguro", continueBrowsing: "Continuar navegando", remove: "Remover",
     purchasesTitle: "Suas compras", noPurchases: "Você ainda não tem compras.", delivery: "Entrega", retryDelivery: "Tentar entrega novamente", retryQueued: "Nova tentativa de entrega solicitada.", paymentChecking: "Verificando pagamento…", paymentConfirmed: "Pagamento confirmado. Seu conteúdo está sendo entregue no Telegram.", paymentProcessing: "O pagamento ainda está sendo processado.", paymentReturn: "Volte ao Telegram e confira Compras em breve.",
     sessionVerifying: "Verificando sua sessão do Telegram…", sessionError: "O Telegram não pôde verificar esta sessão. Feche esta página e reabra o catálogo pelo @OnlyContentMenuBot.", close: "Fechar",
+    ageText: "Confirmo que tenho pelo menos 18 anos.",
     status: { delivered: "Entregue", queued: "Na fila", partial: "Parcialmente entregue", failed: "Falha na entrega", not_ready: "Preparando entrega" },
   },
   "pt-PT": {
@@ -89,6 +96,7 @@ export const customerCopy: Record<CustomerLocale, CustomerCopy> = {
     cartTitle: "O seu carrinho", emptyCart: "O seu carrinho está vazio.", total: "Total", secureCheckout: "Continuar para pagamento seguro", continueBrowsing: "Continuar a navegar", remove: "Remover",
     purchasesTitle: "As suas compras", noPurchases: "Ainda não tem compras.", delivery: "Entrega", retryDelivery: "Tentar entrega novamente", retryQueued: "Foi pedida nova tentativa de entrega.", paymentChecking: "A verificar o pagamento…", paymentConfirmed: "Pagamento confirmado. O seu conteúdo está a ser entregue no Telegram.", paymentProcessing: "O pagamento ainda está a ser processado.", paymentReturn: "Volte ao Telegram e consulte Compras em breve.",
     sessionVerifying: "A verificar a sua sessão Telegram…", sessionError: "O Telegram não conseguiu verificar esta sessão. Feche esta página e reabra o catálogo a partir do @OnlyContentMenuBot.", close: "Fechar",
+    ageText: "Confirmo que tenho pelo menos 18 anos.",
     status: { delivered: "Entregue", queued: "Em fila", partial: "Parcialmente entregue", failed: "Falha na entrega", not_ready: "A preparar entrega" },
   },
 };

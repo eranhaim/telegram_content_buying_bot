@@ -132,6 +132,15 @@ app.put("/api/me/locale", requireActor("telegram"), asyncRoute(async (req, res) 
   const body = z.object({ locale: z.enum(customerLocales) }).strict().parse(req.body);
   res.json({ locale: await saveCustomerLocale(actorUser(req)!, body.locale) });
 }));
+app.post("/api/me/age-confirmation", requireActor("telegram"), asyncRoute(async (req, res) => {
+  const user = await TelegramUser.findByIdAndUpdate(
+    actorUser(req),
+    { $set: { ageConfirmedAt: new Date(), ageConfirmationVersion: "2026-10" } },
+    { new: true },
+  );
+  if (!user) return res.status(404).json({ error: "user_not_found" });
+  res.json({ confirmed: true, ageConfirmedAt: user.ageConfirmedAt });
+}));
 app.get("/api/cart", requireActor("telegram"), asyncRoute(async (req, res) => {
   const userId = actorUser(req)!;
   const cart = await Cart.findOne({ telegramUserId: userId, status: "active" });

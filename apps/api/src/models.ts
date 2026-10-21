@@ -125,6 +125,7 @@ const orderLineSchema = new Schema({
   categoryIds: { type: [String], default: [] },
   categoryNames: { type: [String], default: [] },
   contentVersion: { type: Number, required: true },
+  higherPaysAccountId: String,
   ...money,
   assets: { type: [assetSnapshot], default: [] },
 }, { _id: true });
