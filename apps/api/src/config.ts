@@ -22,11 +22,6 @@ const env = z.object({
   HIGHERPAYS_API_BASE: z.string().url().optional(),
   HIGHERPAYS_MARKETPLACE_API_KEY: z.string().optional(),
   HIGHERPAYS_EVENT_SIGNING_SECRET: z.string().optional(),
-  MANTAPAY_MERCHANT_ID: z.string().optional(),
-  MANTAPAY_HASH_KEY: z.string().optional(),
-  MANTAPAY_HOSTED_BASE: z.string().url().default("https://uiservices.mantapay.biz"),
-  MANTAPAY_PROCESS_BASE: z.string().url().default("https://process.mantapay.biz"),
-  MANTAPAY_WEBHOOK_SECRET: z.string().min(8).default("dev-mantapay-webhook-secret"),
 }).parse(process.env);
 
 export const config = {

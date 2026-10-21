@@ -1,7 +1,7 @@
 import { Order } from "./models.js";
-import { reconcileOrder } from "./orders.js";
+import { applyHigherPaysEvent } from "./orders.js";
 import { deliverEntitlements } from "./telegram.js";
-import { getStatusByOrder } from "./mantapay.js";
+import { reconcileHigherPaysOrder } from "./higherpays.js";
 
 let running = false;
 
@@ -10,15 +10,9 @@ export async function reconcileOrders() {
   const pending = await Order.find({ paymentStatus: "pending", expiresAt: { $gt: now } }).limit(100);
   for (const order of pending) {
     try {
-      const result = await getStatusByOrder(order.publicId);
-      if (result.ok) await reconcileOrder(order.publicId, result);
+      await applyHigherPaysEvent(await reconcileHigherPaysOrder(order.publicId));
     } catch { /* a remote error must not stop reconciliation of other orders */ }
   }
-  // Expire orders past their deadline.
-  await Order.updateMany(
-    { paymentStatus: "pending", expiresAt: { $lte: now } },
-    { $set: { paymentStatus: "expired" } },
-  );
 }
 
 export async function retryDeliveries() {
