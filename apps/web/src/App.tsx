@@ -4,6 +4,11 @@ import { clearToken, Creator, euroToMinor, money, Product, request, setToken } f
 import { adminCopy, adminDirection, adminLanguage, type AdminLanguage } from "./admin-i18n";
 import { customerCopy, customerDirection, customerLocale, customerLocales, type CustomerLocale } from "./customer-i18n";
 
+const localeLabel = (locale: CustomerLocale): string => {
+  const labels: Record<CustomerLocale, string> = { en: "EN", he: "עב", fr: "FR", es: "ES", de: "DE", "pt-BR": "PT-BR", "pt-PT": "PT" };
+  return labels[locale];
+};
+
 declare global {
   interface Window {
     Telegram?: { WebApp?: { initData?: string; ready(): void; expand(): void; openLink(url: string): void; close(): void; viewportStableHeight?: number } };
@@ -79,7 +84,7 @@ function CustomerShell({ locale, setLocale, cartCount, children }: { locale: Cus
     setLocale(customerLocale(result.locale));
   };
   return <div className="customer-shell" lang={locale} dir={customerDirection(locale)}>
-    <header className="customer-appbar">{!isHome ? <button type="button" className="appbar-back" onClick={() => navigate(-1)} aria-label="Back"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg></button> : <span className="appbar-spacer" />}<label className="appbar-language"><span className="sr-only">{t.language}</span><select aria-label={t.language} value={locale} onChange={(event) => void overrideLocale(event.target.value)}>{customerLocales.map((value) => <option key={value} value={value}>{value}</option>)}</select></label><Link className="appbar-cart" to="/cart" aria-label={t.cart}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1" /><circle cx="20" cy="21" r="1" /><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" /></svg>{cartCount > 0 && <span className="appbar-cart-badge">{cartCount}</span>}</Link></header>
+    <header className="customer-appbar">{!isHome ? <button type="button" className="appbar-back" onClick={() => navigate(-1)} aria-label="Back"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg></button> : <span className="appbar-spacer" />}<label className="appbar-locale" aria-label={t.language}><svg className="locale-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg><span className="locale-label">{localeLabel(locale)}</span><select value={locale} onChange={(event) => void overrideLocale(event.target.value)}>{customerLocales.map((value) => <option key={value} value={value}>{localeLabel(value)}</option>)}</select></label><Link className="appbar-cart" to="/cart" aria-label={t.cart}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1" /><circle cx="20" cy="21" r="1" /><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" /></svg>{cartCount > 0 && <span className="appbar-cart-badge">{cartCount}</span>}</Link></header>
     {children}
     <nav className="customer-nav" aria-label={t.privateMarketplace}><Link to="/">{t.discover}</Link><Link to="/guide">{t.guide}</Link><Link to="/cart">{t.cart}</Link><Link to="/library">{t.purchases}</Link></nav>
   </div>;
