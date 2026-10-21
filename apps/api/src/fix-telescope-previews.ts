@@ -5,12 +5,14 @@
  *
  * Also copies the actual video files so delivery works post-purchase.
  *
+ * Derives thumbnail keys from the video key pattern:
+ *   profiles/{id}/media/{uuid}.mp4  →  profiles/{id}/media/{uuid}_thumb.jpg
+ *
  * Requires environment variables:
  *   TELESCOPE_S3_BUCKET     – Telescope's S3 bucket name
  *   TELESCOPE_S3_REGION     – Telescope's AWS region
  *   TELESCOPE_S3_ACCESS_KEY – Telescope's AWS access key
  *   TELESCOPE_S3_SECRET_KEY – Telescope's AWS secret key
- *   TELESCOPE_MONGODB_URI   – Telescope's MongoDB connection string
  *
  * Plus the standard marketplace env (MONGODB_URI, S3_* for MinIO).
  *
@@ -20,16 +22,14 @@
 import crypto from "node:crypto";
 import { Readable } from "node:stream";
 import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { MongoClient, ObjectId } from "mongodb";
 import mongoose from "mongoose";
 import { config } from "./config.js";
 import { MediaAsset, Product } from "./models.js";
 
-const TELESCOPE_URI = process.env.TELESCOPE_MONGODB_URI!;
 const TELESCOPE_BUCKET = process.env.TELESCOPE_S3_BUCKET!;
 const TELESCOPE_REGION = process.env.TELESCOPE_S3_REGION || "us-east-1";
 
-if (!TELESCOPE_URI || !TELESCOPE_BUCKET || !process.env.TELESCOPE_S3_ACCESS_KEY || !process.env.TELESCOPE_S3_SECRET_KEY) {
+if (!TELESCOPE_BUCKET || !process.env.TELESCOPE_S3_ACCESS_KEY || !process.env.TELESCOPE_S3_SECRET_KEY) {
   console.error("Missing required TELESCOPE_* env vars. See script header.");
   process.exit(1);
 }
@@ -73,24 +73,17 @@ async function copyObject(telescopeKey: string, marketplaceKey: string, mimeType
   return buffer.length;
 }
 
-interface TelescopeMedia {
-  type: "image" | "video";
-  s3Key: string;
-  thumbnail?: string;
-  isPublished?: boolean;
+/** Derive thumbnail key from video key: {uuid}.mp4 → {uuid}_thumb.jpg */
+function thumbnailKey(videoKey: string): string {
+  return videoKey.replace(/\.(mp4|mov|webm)$/i, "_thumb.jpg");
 }
 
 async function main() {
-  const telescopeClient = new MongoClient(TELESCOPE_URI);
-  await telescopeClient.connect();
-  const telescopeDb = telescopeClient.db("test");
-  console.log("Connected to Telescope MongoDB.");
-
   await mongoose.connect(config.MONGODB_URI);
   console.log("Connected to marketplace MongoDB.\n");
 
   const products = await Product.find({ status: "published" }).lean();
-  console.log(`Found ${products.length} published products to fix.\n`);
+  console.log(`Found ${products.length} published products.\n`);
 
   let previewsCreated = 0;
   let videosCopied = 0;
@@ -109,39 +102,15 @@ async function main() {
       continue;
     }
 
-    const telescopeKey: string = deliveryAsset.storageKey;
+    const currentKey: string = deliveryAsset.storageKey;
+    const isTelescopeKey = currentKey.startsWith("profiles/");
 
-    // Extract the Telescope profile ID from the storage key.
-    const profileId = telescopeKey.match(/profiles\/([a-f0-9]{24})/)?.[1];
-    if (!profileId) {
-      console.log(`  SKIP ${product.title}: can't parse profile ID from key`);
-      continue;
-    }
-
-    const profile = await telescopeDb.collection("profiles").findOne(
-      { _id: new ObjectId(profileId) },
-      { projection: { media: 1 } },
-    );
-    if (!profile?.media) {
-      console.log(`  SKIP ${product.title}: Telescope profile not found`);
-      continue;
-    }
-
-    const matchingMedia = (profile.media as TelescopeMedia[]).find(
-      (m) => m.s3Key === telescopeKey,
-    );
-    const thumbnailKey = matchingMedia?.thumbnail;
-
-    // 1. Copy the video file to marketplace MinIO (for delivery).
-    const safeFileName: string = deliveryAsset.fileName.replace(/[^A-Za-z0-9._-]/g, "_");
-    const marketplaceDeliveryKey = `agency/${product.agencyId}/assets/${deliveryAssetId}/${safeFileName}`;
-
-    // Skip if this asset was already migrated (key starts with "agency/").
-    if (!telescopeKey.startsWith("profiles/")) {
-      console.log(`  – Already migrated: ${product.title}`);
-    } else {
+    // 1. Copy the video file to marketplace MinIO (if still a Telescope key).
+    if (isTelescopeKey) {
+      const safeFileName: string = deliveryAsset.fileName.replace(/[^A-Za-z0-9._-]/g, "_");
+      const marketplaceDeliveryKey = `agency/${product.agencyId}/assets/${deliveryAssetId}/${safeFileName}`;
       try {
-        const bytes = await copyObject(telescopeKey, marketplaceDeliveryKey, deliveryAsset.mimeType);
+        const bytes = await copyObject(currentKey, marketplaceDeliveryKey, deliveryAsset.mimeType);
         await MediaAsset.updateOne({ _id: deliveryAssetId }, { $set: { storageKey: marketplaceDeliveryKey, bytes } });
         videosCopied++;
         console.log(`  ✓ Video copied: ${product.title} (${(bytes / 1_000_000).toFixed(1)} MB)`);
@@ -150,40 +119,60 @@ async function main() {
         errors++;
         continue;
       }
+    } else {
+      console.log(`  – Video already migrated: ${product.title}`);
     }
 
-    // 2. Copy thumbnail and create preview asset (skip if product already has a preview).
+    // 2. Create preview asset (skip if product already has one).
     if (product.previewAssetId) {
       console.log(`  – Preview already set: ${product.title}`);
       continue;
     }
 
-    if (thumbnailKey) {
-      const previewFileName = thumbnailKey.split("/").pop() || "thumb.jpg";
-      const previewAsset = await MediaAsset.create({
+    // Derive thumbnail key from the original Telescope video key.
+    const thumbKey = isTelescopeKey ? thumbnailKey(currentKey) : null;
+    if (!thumbKey) {
+      console.log(`  – Cannot derive thumbnail for already-migrated: ${product.title}`);
+      continue;
+    }
+
+    const previewFileName = thumbKey.split("/").pop() || "thumb.jpg";
+    const previewAsset = await MediaAsset.create({
+      agencyId: product.agencyId,
+      storageKey: "pending",
+      fileName: previewFileName,
+      mimeType: "image/jpeg",
+      bytes: 1,
+      sha256: crypto.createHash("sha256").update(thumbKey).digest("hex"),
+      purpose: "preview",
+      status: "ready",
+    });
+    const marketplacePreviewKey = `agency/${product.agencyId}/assets/${previewAsset._id}/${previewFileName}`;
+    try {
+      const bytes = await copyObject(thumbKey, marketplacePreviewKey, "image/jpeg");
+      await MediaAsset.updateOne({ _id: previewAsset._id }, { $set: { storageKey: marketplacePreviewKey, bytes } });
+      await Product.updateOne({ _id: product._id }, { $set: { previewAssetId: previewAsset._id, previewMode: "blurred" } });
+      previewsCreated++;
+      console.log(`  ✓ Preview created: ${product.title}`);
+    } catch (err) {
+      // Thumbnail might not exist — try using the video itself as preview.
+      await MediaAsset.deleteOne({ _id: previewAsset._id });
+      console.log(`  ✗ Thumbnail not found for ${product.title}: ${(err as Error).message}`);
+
+      // Fallback: create a preview asset pointing to the video file itself.
+      const videoPreviewAsset = await MediaAsset.create({
         agencyId: product.agencyId,
-        storageKey: "pending",
-        fileName: previewFileName,
-        mimeType: "image/jpeg",
-        bytes: 1,
-        sha256: crypto.createHash("sha256").update(thumbnailKey).digest("hex"),
+        storageKey: `agency/${product.agencyId}/assets/${deliveryAssetId}/${deliveryAsset.fileName.replace(/[^A-Za-z0-9._-]/g, "_")}`,
+        fileName: deliveryAsset.fileName,
+        mimeType: deliveryAsset.mimeType,
+        bytes: deliveryAsset.bytes,
+        sha256: crypto.createHash("sha256").update(currentKey + "-preview").digest("hex"),
         purpose: "preview",
         status: "ready",
       });
-      const marketplacePreviewKey = `agency/${product.agencyId}/assets/${previewAsset._id}/${previewFileName}`;
-      try {
-        const bytes = await copyObject(thumbnailKey, marketplacePreviewKey, "image/jpeg");
-        await MediaAsset.updateOne({ _id: previewAsset._id }, { $set: { storageKey: marketplacePreviewKey, bytes } });
-        await Product.updateOne({ _id: product._id }, { $set: { previewAssetId: previewAsset._id, previewMode: "blurred" } });
-        previewsCreated++;
-        console.log(`  ✓ Preview created: ${product.title}`);
-      } catch (err) {
-        await MediaAsset.deleteOne({ _id: previewAsset._id });
-        console.log(`  ✗ Preview copy failed for ${product.title}: ${(err as Error).message}`);
-        errors++;
-      }
-    } else {
-      console.log(`  – No thumbnail in Telescope for ${product.title}`);
+      await Product.updateOne({ _id: product._id }, { $set: { previewAssetId: videoPreviewAsset._id, previewMode: "blurred" } });
+      previewsCreated++;
+      console.log(`  ✓ Video-as-preview fallback: ${product.title}`);
     }
   }
 
@@ -193,7 +182,6 @@ async function main() {
   console.log(`Errors:           ${errors}`);
   console.log("=".repeat(50));
 
-  await telescopeClient.close();
   await mongoose.disconnect();
 }
 
