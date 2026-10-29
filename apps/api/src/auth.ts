@@ -62,6 +62,10 @@ export function isBrowserCustomer(user: { telegramId?: string } | null | undefin
   return String(user?.telegramId ?? "").startsWith("browser:");
 }
 
+export function canReceiveProtectedDelivery(user: { telegramId?: string; chatId?: string } | null | undefined) {
+  return Boolean(user?.chatId) && !isBrowserCustomer(user);
+}
+
 function browserSessionResponse(account: { _id: unknown; localeOverride?: string; locale?: string }) {
   return {
     token: jwt.sign({ kind: "browser", userId: String(account._id) }, config.JWT_SECRET, { expiresIn: "12h" }),

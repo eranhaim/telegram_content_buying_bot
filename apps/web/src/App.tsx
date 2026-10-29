@@ -5,7 +5,7 @@ import { adminCopy, adminDirection, adminLanguage, type AdminLanguage } from "./
 import { customerCopy, customerDirection, customerLocale, customerLocales, type CustomerLocale } from "./customer-i18n";
 
 const localeLabel = (locale: CustomerLocale): string => {
-  const labels: Record<CustomerLocale, string> = { en: "EN", he: "??", fr: "FR", es: "ES", de: "DE", "pt-BR": "PT-BR", "pt-PT": "PT" };
+  const labels: Record<CustomerLocale, string> = { en: "EN", he: "עב", fr: "FR", es: "ES", de: "DE", "pt-BR": "PT-BR", "pt-PT": "PT" };
   return labels[locale];
 };
 
@@ -73,7 +73,7 @@ function TelescopeCreatorList({ creators, viewLabel }: { creators: Creator[]; vi
         <p>{creator.bio}</p>
         <small>{viewLabel}</small>
       </div>
-      <span className="telescope-creator-arrow" aria-hidden="true">?</span>
+      <span className="telescope-creator-arrow" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg></span>
     </Link>)}
   </section>;
 }
@@ -137,6 +137,9 @@ function CustomerShell({ locale, setLocale, cartCount, children }: { locale: Cus
     document.documentElement.lang = locale;
     document.documentElement.dir = customerDirection(locale);
   }, [locale]);
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
   const overrideLocale = async (value: string) => {
     const nextLocale = customerLocale(value);
     const result = await request<{ locale: CustomerLocale }>("/me/locale", { method: "PUT", body: JSON.stringify({ locale: nextLocale }) });
@@ -164,11 +167,10 @@ function Catalog({ t }: { t: CustomerText }) {
   </main>;
 }
 
-function Guide({ t, browser }: { t: CustomerText; browser: boolean }) {
-  const steps = browser ? t.guideSteps.map((step, index) => index === 3 ? [t.browserAccessTitle, t.browserAccessText] as const : step) : t.guideSteps;
+function Guide({ t }: { t: CustomerText }) {
   return <main className="customer-main">
     <p className="eyebrow">{t.guide}</p><h1>{t.guideTitle}</h1>
-    <ol className="guide-steps">{steps.map(([title, text]) => <li key={title}><h2>{title}</h2><p>{text}</p></li>)}</ol>
+    <ol className="guide-steps">{t.guideSteps.map(([title, text]) => <li key={title}><h2>{title}</h2><p>{text}</p></li>)}</ol>
     <Link className="customer-primary-link" to="/">{t.startDiscovering}</Link>
   </main>;
 }
@@ -248,7 +250,7 @@ function FeaturedCreatorVideo({ video, posterUrl, label, unavailable }: { video?
         : posterUrl
           ? <img src={video?.posterUrl || posterUrl} alt="" width="720" height="420" />
           : <div className="featured-video-empty">{unavailable}</div>}
-      <div className="featured-video-overlay"><span>{label}</span><i aria-hidden="true">?</i></div>
+      <div className="featured-video-overlay"><span>{label}</span><i aria-hidden="true">▶</i></div>
     </div>
   </section>;
 }
@@ -265,7 +267,7 @@ function CreatorPage({ t, locale, onCartChange }: { t: CustomerText; locale: Cus
     catch { setNotice(t.cartUpdateFailed); }
   };
   return <main className="customer-main">
-    <Link className="back-link" to="/">? {t.backDiscover}</Link>
+    <Link className="back-link" to="/">← {t.backDiscover}</Link>
     <section className="creator-profile-hero">
       <div className="creator-profile-avatar">
         {creator?.avatarUrl
@@ -296,40 +298,34 @@ function CartPage({ t, locale, browser, onCartChange }: { t: CustomerText; local
       await request("/me/age-confirmation", { method: "POST", body: JSON.stringify({ accepted: true, version: "2026-09" }) });
       const result = await request<{ checkoutUrl: string }>("/checkout", { method: "POST" });
       if (!browser && window.Telegram?.WebApp?.initData) window.Telegram.WebApp.openLink(result.checkoutUrl); else window.location.assign(result.checkoutUrl);
-    } catch { alert(t.checkoutUnavailable); }
+    } catch (error) { alert(error instanceof Error && error.message === "telegram_delivery_required" ? t.telegramCheckoutRequired : t.checkoutUnavailable); }
   };
   const total = cart?.items.reduce((sum, item) => sum + item.priceMinorSnapshot, 0) ?? 0;
-  return <main className="customer-main"><h1>{t.cartTitle}</h1>{cart?.items.map((item) => <article className="cart-item" key={item.productId}><h2>{item.titleSnapshot}</h2><p>{item.creatorNameSnapshot} ? <span className="ltr-value" dir="ltr">{money(item.priceMinorSnapshot, cart.currency, locale)}</span></p><button onClick={() => void remove(item.productId)}>{t.remove}</button></article>)}{cart && !cart.items.length && <p className="empty">{t.emptyCart}</p>}<section className="cart-summary"><h2>{t.total}: <span className="ltr-value" dir="ltr">{money(total, cart?.currency ?? "EUR", locale)}</span></h2><button disabled={!total} onClick={() => void checkout()}>{t.secureCheckout}</button><button className="plain-button" onClick={() => navigate("/")}>{t.continueBrowsing}</button></section></main>;
+  return <main className="customer-main"><h1>{t.cartTitle}</h1>{browser && <p className="notice">{t.telegramCheckoutRequired}</p>}{cart?.items.map((item) => <article className="cart-item" key={item.productId}><h2>{item.titleSnapshot}</h2><p>{item.creatorNameSnapshot} <span aria-hidden="true">·</span> <span className="ltr-value" dir="ltr">{money(item.priceMinorSnapshot, cart.currency, locale)}</span></p><button onClick={() => void remove(item.productId)}>{t.remove}</button></article>)}{cart && !cart.items.length && <p className="empty">{t.emptyCart}</p>}<section className="cart-summary"><h2>{t.total}: <span className="ltr-value" dir="ltr">{money(total, cart?.currency ?? "EUR", locale)}</span></h2><button disabled={!total || browser} onClick={() => void checkout()}>{t.secureCheckout}</button><button className="plain-button" onClick={() => navigate("/")}>{t.continueBrowsing}</button></section></main>;
 }
 
-function Library({ t, browser }: { t: CustomerText; browser: boolean }) {
-  const [orders, setOrders] = useState<{ publicId: string; fulfillmentStatus: string; lines: { productTitle: string }[]; files?: { assetId: string; fileName: string; productTitle: string }[] }[]>([]);
+function Library({ t }: { t: CustomerText }) {
+  const [orders, setOrders] = useState<{ publicId: string; fulfillmentStatus: string; lines: { productTitle: string }[] }[]>([]);
   useEffect(() => { void request<{ items: typeof orders }>("/purchases").then((result) => setOrders(result.items)); }, []);
   const [notice, setNotice] = useState("");
   const retry = async (publicId: string) => { await request(`/purchases/${publicId}/retry-delivery`, { method: "POST" }); setNotice(t.retryQueued); };
-  const download = async (publicId: string, assetId: string) => {
-    try {
-      const file = await request<{ url: string }>(`/purchases/${publicId}/files/${assetId}`);
-      window.open(file.url, "_blank", "noopener,noreferrer");
-    } catch { setNotice(t.downloadFailed); }
-  };
-  return <main className="customer-main"><h1>{t.purchasesTitle}</h1>{notice && <p className="notice" role="status">{notice}</p>}{!orders.length && <p className="empty">{t.noPurchases}</p>}{orders.map((order) => <article className="purchase-item" key={order.publicId}><h2>{order.lines.map((line) => line.productTitle).join(", ")}</h2><p>{t.delivery}: {t.status[order.fulfillmentStatus] ?? order.fulfillmentStatus}</p><p className="order-id" dir="ltr">{order.publicId}</p>{browser ? (order.files ?? []).map((file) => <div className="download-row" key={file.assetId}><span>{file.fileName}</span><button type="button" onClick={() => void download(order.publicId, file.assetId)}>{t.download}</button></div>) : <button onClick={() => void retry(order.publicId)}>{t.retryDelivery}</button>}</article>)}</main>;
+  return <main className="customer-main"><h1>{t.purchasesTitle}</h1>{notice && <p className="notice" role="status">{notice}</p>}{!orders.length && <p className="empty">{t.noPurchases}</p>}{orders.map((order) => <article className="purchase-item" key={order.publicId}><h2>{order.lines.map((line) => line.productTitle).join(", ")}</h2><p>{t.delivery}: {t.status[order.fulfillmentStatus] ?? order.fulfillmentStatus}</p><p className="order-id" dir="ltr">{order.publicId}</p><button onClick={() => void retry(order.publicId)}>{t.retryDelivery}</button></article>)}</main>;
 }
 
-function PaymentComplete({ t, browser }: { t: CustomerText; browser: boolean }) {
+function PaymentComplete({ t }: { t: CustomerText }) {
   const params = new URLSearchParams(location.search);
   const [status, setStatus] = useState(t.paymentChecking);
   useEffect(() => {
     const order = params.get("order"); const state = params.get("state");
     if (!order || !state) return;
-    const check = () => void request<{ paymentStatus: string }>(`/payment-return/${order}?state=${encodeURIComponent(state)}`).then((result) => setStatus(result.paymentStatus === "paid" ? (browser ? t.browserPaymentConfirmed : t.paymentConfirmed) : t.paymentProcessing)).catch(() => setStatus(browser ? t.browserPaymentReturn : t.paymentReturn));
+    const check = () => void request<{ paymentStatus: string }>(`/payment-return/${order}?state=${encodeURIComponent(state)}`).then((result) => setStatus(result.paymentStatus === "paid" ? t.paymentConfirmed : t.paymentProcessing)).catch(() => setStatus(t.paymentReturn));
     check(); const timer = setInterval(check, 5000); return () => clearInterval(timer);
   }, []);
   return <main className="customer-main"><h1>{status}</h1><Link className="customer-primary-link" to="/library">{t.purchases}</Link></main>;
 }
 
 function Dialog({ title, close, closeLabel, children }: { title: string; close: () => void; closeLabel: string; children: ReactNode }) {
-  return <div className="dialog-backdrop" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) close(); }}><section className="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title"><div className="dialog-heading"><h2 id="dialog-title">{title}</h2><button type="button" className="dialog-close" onClick={close} aria-label={closeLabel}>?</button></div>{children}</section></div>;
+  return <div className="dialog-backdrop" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) close(); }}><section className="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title"><div className="dialog-heading"><h2 id="dialog-title">{title}</h2><button type="button" className="dialog-close" onClick={close} aria-label={closeLabel}>×</button></div>{children}</section></div>;
 }
 
 // --- Admin: Orders tab ---
@@ -352,7 +348,7 @@ function AdminOrders({ t }: { t: typeof adminCopy.en }) {
     {orders.length ? <div className="admin-table-wrap"><table className="admin-table">
       <thead><tr><th>{t.date}</th><th>{t.customer}</th><th>{t.items}</th><th>{t.total}</th><th>{t.payment}</th><th>{t.fulfillment}</th><th>{t.orderId}</th></tr></thead>
       <tbody>{orders.map((o) => {
-        const user = o.telegramUser?.username ? `@${o.telegramUser.username}` : (o.telegramUser?.firstName ?? "?");
+        const user = o.telegramUser?.username ? `@${o.telegramUser.username}` : (o.telegramUser?.firstName ?? "—");
         const items = o.lines.map((l) => l.productTitle).join(", ");
         return <tr key={o._id}>
           <td>{formatDate(o.createdAt)}</td>
@@ -492,7 +488,7 @@ function Admin() {
 }
 
 function LanguageSwitch({ language, setLanguage, title }: { language: AdminLanguage; setLanguage: (language: AdminLanguage) => void; title: string }) {
-  return <label className="language-switch">{title}<select value={language} onChange={(event) => setLanguage(adminLanguage(event.target.value))}><option value="en">English</option><option value="he">?????</option></select></label>;
+  return <label className="language-switch">{title}<select value={language} onChange={(event) => setLanguage(adminLanguage(event.target.value))}><option value="en">English</option><option value="he">עברית</option></select></label>;
 }
 
 function AdminCatalogue({ creators, agencies, t, showDialog, openDialog, closeDialog, submit, publish }: { creators: AdminCreator[]; agencies: AdminAgency[]; t: typeof adminCopy.en; showDialog: boolean; openDialog: () => void; closeDialog: () => void; submit: AdminSubmit; publish: (id: string) => void }) {
@@ -532,11 +528,11 @@ function AdminAssetPicker({ assets, selectedId, onChange, t }: { assets: AdminAs
     <legend>{t.storefrontPreview}</legend>
     <div className="asset-picker-grid">
       <button type="button" className={`asset-picker-card${!selectedId ? " selected" : ""}`} aria-pressed={!selectedId} onClick={() => onChange("")}>
-        <div className="asset-picker-visual"><span aria-hidden="true">?</span></div>
+        <div className="asset-picker-visual"><span aria-hidden="true">—</span></div>
         <strong>{t.noPreviewOption}</strong>
       </button>
       {assets.filter((asset) => asset.purpose === "preview").map((asset) => <button type="button" key={asset._id} className={`asset-picker-card${selectedId === asset._id ? " selected" : ""}`} aria-pressed={selectedId === asset._id} onClick={() => onChange(asset._id)}>
-        <div className="asset-picker-visual"><AdminAssetVisual asset={asset} unavailable={t.noPreviewMedia} />{selectedId === asset._id && <span className="asset-check" aria-label={t.selected}>?</span>}</div>
+        <div className="asset-picker-visual"><AdminAssetVisual asset={asset} unavailable={t.noPreviewMedia} />{selectedId === asset._id && <span className="asset-check" aria-label={t.selected}>✓</span>}</div>
         <strong>{asset.fileName || t.noPreviewMedia}</strong>
         <small>{asset.mimeType.startsWith("video/") ? t.mediaTypeVideo : t.mediaTypeImage}</small>
       </button>)}
@@ -547,7 +543,7 @@ function AdminAssetPicker({ assets, selectedId, onChange, t }: { assets: AdminAs
 function DeliveryAssetCard({ asset, selected, onToggle, t }: { asset: AdminAsset; selected: boolean; onToggle: () => void; t: typeof adminCopy.en }) {
   return <label className={`delivery-asset-card${selected ? " selected" : ""}`}>
     <input type="checkbox" checked={selected} onChange={onToggle} />
-    <div className="delivery-asset-visual"><AdminAssetVisual asset={asset} unavailable={t.noPreviewMedia} />{selected && <span className="asset-check" aria-label={t.selected}>?</span>}</div>
+    <div className="delivery-asset-visual"><AdminAssetVisual asset={asset} unavailable={t.noPreviewMedia} />{selected && <span className="asset-check" aria-label={t.selected}>✓</span>}</div>
     <div className="delivery-asset-copy"><strong>{asset.fileName || (asset.mimeType.startsWith("video/") ? t.mediaTypeVideo : t.mediaTypeImage)}</strong><small>{asset.mimeType.startsWith("video/") ? t.mediaTypeVideo : t.mediaTypeImage}</small></div>
   </label>;
 }
@@ -568,7 +564,7 @@ function AdminCreatorContent({ creator, products, assets, categories, t, selecte
     const target = index + direction; if (target < 0 || target >= selectedAssetIds.length) return;
     const next = [...selectedAssetIds]; [next[index], next[target]] = [next[target], next[index]]; setSelectedAssetIds(next);
   };
-  return <><nav><Link to="/admin">? {t.backToCatalogue}</Link></nav><section className="admin-intro"><p className="eyebrow">{t.content}</p><h2>{creator.displayName}</h2><p>{t.contentHelp}</p></section>
+  return <><nav><Link to="/admin">← {t.backToCatalogue}</Link></nav><section className="admin-intro"><p className="eyebrow">{t.content}</p><h2>{creator.displayName}</h2><p>{t.contentHelp}</p></section>
     <ContentGrid className="admin-content-grid" items={products} addCard={<PlusCard label={t.addContent} onClick={openNew} />} empty={<p className="empty">{t.contentEmpty}</p>} renderCopy={(product) => <><h2>{product.title}</h2><p>{product.status === "published" ? t.published : t.draft}</p><button type="button" onClick={() => openEdit(product as AdminProduct)}>{t.edit}</button>{product.status !== "published" && <button type="button" onClick={() => void publish(product._id)}>{t.publish}</button>}<button type="button" className="plain-button" onClick={() => void archive(product._id)}>{t.archive}</button></>} />
     {showDialog && <Dialog title={editing ? t.editContent : t.newContent} close={closeDialog} closeLabel={t.close}><form onSubmit={(event) => void submit(event, editing ? `/admin/products/${editing._id}` : "/admin/products", (data) => ({ ...(editing ? {} : { agencyId: creator.agencyId, creatorId: creator._id }), title: data.get("title"), description: data.get("description"), deliveryMessage: data.get("deliveryMessage"), categoryIds: selectedCategoryIds, previewMode: data.get("previewMode"), previewAssetId: data.get("previewMode") === "none" ? null : previewAssetId || undefined, mediaAssetIds: selectedAssetIds, amountMinor: euroToMinor(data.get("price")), currency: "EUR" }), editing ? t.saved : t.productCreated, editing ? "PATCH" : "POST").then(closeDialog)}><label>{t.productTitle}<input name="title" defaultValue={editing?.title} required /></label><label>{t.deliveryMessage}<textarea name="deliveryMessage" defaultValue={editing?.deliveryMessage} maxLength={1000} /></label><label>{t.description}<textarea name="description" defaultValue={editing?.description} /></label><label>{t.price}<input name="price" type="text" inputMode="decimal" pattern="\d+(\.\d{1,2})?" defaultValue={editing ? (editing.amountMinor / 100).toFixed(2) : ""} required /></label><label>{t.preview}<select name="previewMode" defaultValue={editing?.previewMode ?? "blurred"}><option value="none">{t.noPreviewOption}</option><option value="blurred">{t.blurredPreviewOption}</option><option value="visible">{t.visiblePreviewOption}</option></select></label><AdminAssetPicker assets={assets} selectedId={previewAssetId} onChange={setPreviewAssetId} t={t} /><fieldset><legend>{t.categories}</legend>{categories.filter((category) => category.status === "active").map((category) => <label key={category._id}><input type="checkbox" checked={selectedCategoryIds.includes(category._id)} onChange={(event) => setSelectedCategoryIds(event.target.checked ? [...selectedCategoryIds, category._id] : selectedCategoryIds.filter((id) => id !== category._id))} /> {category.name}</label>)}</fieldset><fieldset><legend>{t.privateFiles}</legend><div className="delivery-asset-grid">{visibleDeliveryAssets.map((asset) => <DeliveryAssetCard key={asset._id} asset={asset} selected={selectedAssetIds.includes(asset._id)} onToggle={() => setSelectedAssetIds(selectedAssetIds.includes(asset._id) ? selectedAssetIds.filter((id) => id !== asset._id) : [...selectedAssetIds, asset._id])} t={t} />)}</div>{!deliveryAssets.length && <p className="help">{t.noMedia}</p>}<div className="asset-pagination"><span>{selectedAssetIds.length} {t.selected}</span><button type="button" className="plain-button" disabled={deliveryPage <= 1} onClick={() => setDeliveryPage((page) => page - 1)}>{t.previousPage}</button><span>{deliveryPage} / {pageCount}</span><button type="button" className="plain-button" disabled={deliveryPage >= pageCount} onClick={() => setDeliveryPage((page) => page + 1)}>{t.nextPage}</button></div></fieldset><button className="dialog-submit" disabled={!selectedAssetIds.length}>{editing ? t.save : t.createProduct}</button></form><section className="upload-panel"><h3>{t.uploadMedia}</h3><form onSubmit={(event) => void upload(event, creator.agencyId)}><label>{t.uploadPurpose}<select name="purpose" defaultValue="delivery"><option value="delivery">{t.deliveryFile}</option><option value="preview">{t.previewFile}</option></select></label><label>{t.chooseFile}<input name="file" type="file" accept="image/*,video/*,audio/*,application/*" required /></label><button>{t.upload}</button></form><p className="help">{t.uploadHelp}</p></section></Dialog>}</>;
 }
@@ -588,7 +584,7 @@ function Marketplace() {
   useEffect(() => { if (ready) refreshCartCount(); }, [ready, refreshCartCount]);
   if (error) return <main className="customer-main session-gate"><p className="brand-lockup"><img src="/vesper.svg" alt="" /><span className="brand-name">Vesper</span></p><p>{telegramAttempt ? t.sessionError : t.browserSessionError}</p></main>;
   if (!ready) return <main className="customer-main session-gate"><p className="brand-lockup"><img src="/vesper.svg" alt="" /><span className="brand-name">Vesper</span></p><p>{t.openingCatalog}</p></main>;
-  return <CustomerShell locale={locale} setLocale={setLocale} cartCount={cartCount}><Routes><Route path="/" element={<Catalog t={t} />} /><Route path="/guide" element={<Guide t={t} browser={browser} />} /><Route path="/creators/:slug" element={<CreatorPage t={t} locale={locale} onCartChange={refreshCartCount} />} /><Route path="/cart" element={<CartPage t={t} locale={locale} browser={browser} onCartChange={refreshCartCount} />} /><Route path="/library" element={<Library t={t} browser={browser} />} /><Route path="/payment-complete" element={<PaymentComplete t={t} browser={browser} />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes></CustomerShell>;
+  return <CustomerShell locale={locale} setLocale={setLocale} cartCount={cartCount}><Routes><Route path="/" element={<Catalog t={t} />} /><Route path="/guide" element={<Guide t={t} />} /><Route path="/creators/:slug" element={<CreatorPage t={t} locale={locale} onCartChange={refreshCartCount} />} /><Route path="/cart" element={<CartPage t={t} locale={locale} browser={browser} onCartChange={refreshCartCount} />} /><Route path="/library" element={<Library t={t} />} /><Route path="/payment-complete" element={<PaymentComplete t={t} />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes></CustomerShell>;
 }
 
 export function App() {

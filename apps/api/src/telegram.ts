@@ -1,6 +1,6 @@
 import { Input, Telegraf } from "telegraf";
 import { config } from "./config.js";
-import { isBrowserCustomer } from "./auth.js";
+import { canReceiveProtectedDelivery } from "./auth.js";
 import { customerBotCopy, customerLocale } from "./customer-locale.js";
 import { Delivery, Entitlement, MediaAsset, Order, TelegramUser } from "./models.js";
 import { signedDownloadUrl } from "./storage.js";
@@ -53,10 +53,8 @@ export async function deliverEntitlements(orderId: string) {
   if (!order || order.paymentStatus !== "paid") return;
   const user = await TelegramUser.findById(order.telegramUserId);
   if (!user || user.deliveryBlockedAt) return;
-  // A browser customer has no Telegram chat. Leave the paid order downloadable
-  // in the browser instead of calling the Bot API.
-  if (isBrowserCustomer(user)) {
-    if (order.fulfillmentStatus !== "delivered") await Order.updateOne({ _id: order._id }, { $set: { fulfillmentStatus: "delivered" } });
+  if (!canReceiveProtectedDelivery(user)) {
+    if (order.fulfillmentStatus !== "failed") await Order.updateOne({ _id: order._id }, { $set: { fulfillmentStatus: "failed" } });
     return;
   }
   if (!bot) throw new Error("telegram_bot_not_configured");

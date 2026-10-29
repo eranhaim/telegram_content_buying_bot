@@ -12,6 +12,7 @@ import { deliverEntitlements } from "./telegram.js";
 import { rateLimit } from "./rate-limit.js";
 import { previewIsConfigured } from "./commerce.js";
 import { signedTelescopeUrl } from "./telescope-storage.js";
+import { signedTelescopeAvatarUrl } from "./telescope-catalog.js";
 
 const objectId = z.string().regex(/^[a-fA-F0-9]{24}$/);
 const objectIds = z.array(objectId).refine((ids) => new Set(ids).size === ids.length, "duplicate_ids");
@@ -34,7 +35,7 @@ const asyncRoute = (fn: (req: Request, res: Response) => Promise<unknown>) =>
     const status = error instanceof z.ZodError ? 400
       : message === "invalid_browser_session" ? 400
       : ["telegram_auth_unavailable", "invalid_telegram_init_data", "expired_telegram_init_data", "missing_telegram_user"].includes(message) ? 401
-      : ["cart_empty", "unavailable_product", "mixed_currency_cart", "mixed_agency_cart", "age_confirmation_required", "agency_checkout_not_configured"].includes(message) ? 409
+      : ["cart_empty", "unavailable_product", "mixed_currency_cart", "mixed_agency_cart", "age_confirmation_required", "agency_checkout_not_configured", "telegram_delivery_required"].includes(message) ? 409
         : ["mantapay_not_configured", "object_storage_not_configured"].includes(message) ? 503 : 500;
     res.status(status).json({ error: message });
   });
@@ -66,7 +67,9 @@ const catalogCreator = async (creator: any) => ({
   displayName: creator.displayName,
   slug: creator.slug,
   bio: creator.bio,
-  avatarUrl: await signedTelescopeUrl(creator.telescopeAvatarThumbKey ?? creator.telescopeAvatarKey),
+  avatarUrl:
+    await signedTelescopeAvatarUrl(creator)
+    ?? await signedTelescopeUrl(creator.telescopeAvatarThumbKey ?? creator.telescopeAvatarKey),
 });
 const audit = (req: Request, action: string, entityType: string, entityId?: string, metadata?: unknown) =>
   AuditEvent.create({ actorType: req.actor?.kind ?? "system", actorId: req.actor?.kind === "admin" ? "shared-password" : req.actor?.kind === "telegram" ? req.actor.telegramId : undefined, action, entityType, entityId, metadata, ip: req.ip });
@@ -197,6 +200,7 @@ app.delete("/api/cart/items/:productId", requireActor("customer"), asyncRoute(as
 }));
 
 app.post("/api/checkout", requireActor("customer"), rateLimit(60_000, 5), asyncRoute(async (req, res) => {
+  if (req.actor?.kind !== "telegram") return res.status(403).json({ error: "telegram_checkout_required" });
   const order = await createOrderForCart(actorUser(req)!);
   res.status(201).json({
     orderId: order.publicId, totalMinor: order.totalMinor, currency: order.currency,
@@ -221,20 +225,7 @@ app.get("/api/payment-return/:publicId", asyncRoute(async (req, res) => {
 }));
 app.get("/api/purchases", requireActor("customer"), asyncRoute(async (req, res) => {
   const orders = await Order.find({ telegramUserId: actorUser(req), paymentStatus: "paid" }).select("publicId lines paymentStatus fulfillmentStatus paidAt currency totalMinor").sort({ paidAt: -1 }).lean();
-  if (req.actor?.kind !== "browser") return res.json({ items: orders });
-  res.json({ items: orders.map((order: any) => ({
-    publicId: order.publicId, paymentStatus: order.paymentStatus, fulfillmentStatus: order.fulfillmentStatus, paidAt: order.paidAt, currency: order.currency, totalMinor: order.totalMinor,
-    lines: (order.lines ?? []).map((line: any) => ({ productTitle: line.productTitle })),
-    files: (order.lines ?? []).flatMap((line: any) => (line.assets ?? []).map((asset: any) => ({ assetId: String(asset.assetId), fileName: asset.fileName, productTitle: line.productTitle }))),
-  })) });
-}));
-app.get("/api/purchases/:publicId/files/:assetId", requireActor("customer"), asyncRoute(async (req, res) => {
-  if (req.actor?.kind !== "browser") return res.status(403).json({ error: "forbidden" });
-  const order = await Order.findOne({ publicId: req.params.publicId, telegramUserId: actorUser(req), paymentStatus: "paid" });
-  if (!order) return res.status(404).json({ error: "order_not_found" });
-  const match = order.lines.flatMap((line: any) => line.assets ?? []).find((asset: any) => String(asset.assetId) === req.params.assetId);
-  if (!match?.storageKey) return res.status(404).json({ error: "file_not_found" });
-  res.json({ url: await signedDownloadUrl(match.storageKey, match.fileName), fileName: match.fileName });
+  res.json({ items: orders });
 }));
 app.post("/api/purchases/:publicId/retry-delivery", requireActor("customer"), asyncRoute(async (req, res) => {
   const order = await Order.findOne({ publicId: req.params.publicId, telegramUserId: actorUser(req), paymentStatus: "paid" });

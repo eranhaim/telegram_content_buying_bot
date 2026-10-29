@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import test from "node:test";
 
 process.env.TELEGRAM_BOT_TOKEN = "test-telegram-bot-token";
-const { browserTelegramId, saveCustomerLocale, verifyTelegramInitData } = await import("../src/auth.js");
+const { browserTelegramId, canReceiveProtectedDelivery, saveCustomerLocale, verifyTelegramInitData } = await import("../src/auth.js");
 const { TelegramUser } = await import("../src/models.js");
 
 function signedInitData(entries: [string, string][]) {
@@ -37,6 +37,12 @@ test("browser session ids are not Telegram accounts", () => {
   assert.equal(browserTelegramId("11111111-1111-4111-8111-111111111111"), "browser:11111111-1111-4111-8111-111111111111");
   assert.throws(() => browserTelegramId("123456"), /invalid_browser_session/);
   assert.throws(() => browserTelegramId("browser:11111111-1111-4111-8111-111111111111"), /invalid_browser_session/);
+});
+
+test("protected delivery requires a Telegram chat started with the bot", () => {
+  assert.equal(canReceiveProtectedDelivery({ telegramId: "123", chatId: "123" }), true);
+  assert.equal(canReceiveProtectedDelivery({ telegramId: "123" }), false);
+  assert.equal(canReceiveProtectedDelivery({ telegramId: "browser:11111111-1111-4111-8111-111111111111", chatId: "123" }), false);
 });
 
 test("forged Telegram initData is rejected", () => {
