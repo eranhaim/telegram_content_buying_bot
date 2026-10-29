@@ -33,6 +33,9 @@ const creatorSchema = new Schema({
   slug: { type: String, required: true, lowercase: true, trim: true, unique: true },
   bio: { type: String, default: "" },
   avatarAssetId: String,
+  telescopeProfileId: String,
+  telescopeAvatarKey: String,
+  telescopeAvatarThumbKey: String,
   higherPaysWorkspaceId: String,
   higherPaysAgentId: String,
   higherPaysAgentName: String,
@@ -71,6 +74,7 @@ const productSchema = new Schema({
   title: { type: String, required: true, trim: true },
   slug: { type: String, required: true, trim: true, lowercase: true },
   description: { type: String, default: "" },
+  deliveryMessage: { type: String, default: "", maxlength: 1000 },
   categoryIds: [{ type: Schema.Types.ObjectId, ref: "Category" }],
   previewAssetId: { type: Schema.Types.ObjectId, ref: "MediaAsset" },
   previewMode: { type: String, enum: ["none", "blurred", "visible"], default: "blurred" },
@@ -79,6 +83,10 @@ const productSchema = new Schema({
   contentVersion: { type: Number, default: 1, min: 1 },
   status: { type: String, enum: ["draft", "review", "published", "archived"], default: "draft" },
   purchasesCount: { type: Number, default: 0, min: 0 },
+  telescopeMediaId: String,
+  telescopeMediaKey: String,
+  telescopeThumbnailKey: String,
+  telescopeClicks: { type: Number, default: 0, min: 0 },
 }, timestamps);
 productSchema.index({ creatorId: 1, slug: 1 }, { unique: true });
 productSchema.index({ agencyId: 1, status: 1, createdAt: -1 });
@@ -113,6 +121,7 @@ const orderLineSchema = new Schema({
   creatorId: { type: String, required: true },
   productTitle: { type: String, required: true },
   creatorName: { type: String, required: true },
+  deliveryMessage: { type: String, default: "" },
   categoryIds: { type: [String], default: [] },
   categoryNames: { type: [String], default: [] },
   contentVersion: { type: Number, required: true },

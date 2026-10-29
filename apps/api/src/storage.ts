@@ -22,9 +22,14 @@ export async function signedUploadUrl(key: string, mimeType: string) {
   return getSignedUrl(publicClient, new PutObjectCommand({ Bucket: config.S3_BUCKET, Key: key, ContentType: mimeType }), { expiresIn: 900 });
 }
 
-export async function signedDownloadUrl(key: string) {
+export async function signedDownloadUrl(key: string, fileName?: string) {
   if (!publicClient) throw new Error("object_storage_not_configured");
-  return getSignedUrl(publicClient, new GetObjectCommand({ Bucket: config.S3_BUCKET, Key: key }), { expiresIn: 300 });
+  const safeName = fileName?.replace(/["\r\n]/g, "") || "";
+  return getSignedUrl(publicClient, new GetObjectCommand({
+    Bucket: config.S3_BUCKET,
+    Key: key,
+    ...(safeName ? { ResponseContentDisposition: `attachment; filename="${safeName}"` } : {}),
+  }), { expiresIn: 300 });
 }
 
 export async function storedObject(key: string) {

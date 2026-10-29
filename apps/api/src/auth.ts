@@ -5,7 +5,9 @@ import { config } from "./config.js";
 import { customerLocale, type CustomerLocale } from "./customer-locale.js";
 import { TelegramUser } from "./models.js";
 
-export type AppActor = { kind: "telegram"; userId: string; telegramId: string } | { kind: "admin" };
+export const BROWSER_CUSTOMER_LABEL = "browser users";
+
+export type AppActor = { kind: "telegram"; userId: string; telegramId: string } | { kind: "browser"; userId: string } | { kind: "admin" };
 declare global {
   namespace Express { interface Request { actor?: AppActor; } }
 }
@@ -45,7 +47,45 @@ export async function issueTelegramSession(initData: string) {
     token: jwt.sign({ kind: "telegram", userId: String(account._id), telegramId: String(user.id) }, config.JWT_SECRET, { expiresIn: "15m" }),
     telegramId: String(user.id),
     locale: account.localeOverride ?? account.locale,
+    actor: "telegram" as const,
   };
+}
+
+export function browserTelegramId(browserId: string) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(browserId)) {
+    throw new Error("invalid_browser_session");
+  }
+  return `browser:${browserId.toLowerCase()}`;
+}
+
+export function isBrowserCustomer(user: { telegramId?: string } | null | undefined) {
+  return String(user?.telegramId ?? "").startsWith("browser:");
+}
+
+function browserSessionResponse(account: { _id: unknown; localeOverride?: string; locale?: string }) {
+  return {
+    token: jwt.sign({ kind: "browser", userId: String(account._id) }, config.JWT_SECRET, { expiresIn: "12h" }),
+    locale: account.localeOverride ?? account.locale ?? "en",
+    actor: "browser" as const,
+  };
+}
+
+export async function issueBrowserSession(browserId: string) {
+  const telegramId = browserTelegramId(browserId);
+  const update = {
+    $set: { firstName: BROWSER_CUSTOMER_LABEL, lastSeenAt: new Date() },
+    $unset: { username: 1, chatId: 1, lastName: 1 },
+    $setOnInsert: { telegramId, locale: "en" },
+  };
+  try {
+    const account = await TelegramUser.findOneAndUpdate({ telegramId }, update, { upsert: true, new: true, setDefaultsOnInsert: true });
+    return browserSessionResponse(account);
+  } catch (error: unknown) {
+    if ((error as { code?: number }).code !== 11000) throw error;
+    const account = await TelegramUser.findOne({ telegramId });
+    if (!account) throw error;
+    return browserSessionResponse(account);
+  }
 }
 
 export async function saveCustomerLocale(userId: string, locale: CustomerLocale) {
@@ -62,13 +102,15 @@ export function issueAdminSession() {
   return jwt.sign({ kind: "admin" }, config.JWT_SECRET, { expiresIn: "4h" });
 }
 
-export function requireActor(kind?: AppActor["kind"]) {
+export function requireActor(kind?: AppActor["kind"] | "customer") {
   return (req: Request, res: Response, next: NextFunction) => {
     const token = req.header("authorization")?.replace(/^Bearer\s+/i, "");
     if (!token) return res.status(401).json({ error: "missing_token" });
     try {
       const actor = jwt.verify(token, config.JWT_SECRET) as AppActor;
-      if (!actor.kind || (kind && actor.kind !== kind)) return res.status(403).json({ error: "forbidden" });
+      const isCustomer = actor.kind === "telegram" || actor.kind === "browser";
+      const allowed = kind === "customer" ? isCustomer : !kind || actor.kind === kind;
+      if (!actor.kind || !allowed) return res.status(403).json({ error: "forbidden" });
       req.actor = actor;
       next();
     } catch {

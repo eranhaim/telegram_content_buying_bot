@@ -1,5 +1,6 @@
 import { Input, Telegraf } from "telegraf";
 import { config } from "./config.js";
+import { isBrowserCustomer } from "./auth.js";
 import { customerBotCopy, customerLocale } from "./customer-locale.js";
 import { Delivery, Entitlement, MediaAsset, Order, TelegramUser } from "./models.js";
 import { signedDownloadUrl } from "./storage.js";
@@ -11,7 +12,7 @@ export async function startBot() {
   await bot.telegram.setChatMenuButton({
     menuButton: {
       type: "web_app",
-      text: "Open catalog",
+      text: "Open Vesper",
       web_app: { url: config.PUBLIC_APP_URL },
     },
   });
@@ -48,11 +49,18 @@ export async function stopBot() {
 }
 
 export async function deliverEntitlements(orderId: string) {
-  if (!bot) throw new Error("telegram_bot_not_configured");
   const order = await Order.findById(orderId);
   if (!order || order.paymentStatus !== "paid") return;
   const user = await TelegramUser.findById(order.telegramUserId);
-  if (!user?.chatId || user.deliveryBlockedAt) return;
+  if (!user || user.deliveryBlockedAt) return;
+  // A browser customer has no Telegram chat. Leave the paid order downloadable
+  // in the browser instead of calling the Bot API.
+  if (isBrowserCustomer(user)) {
+    if (order.fulfillmentStatus !== "delivered") await Order.updateOne({ _id: order._id }, { $set: { fulfillmentStatus: "delivered" } });
+    return;
+  }
+  if (!bot) throw new Error("telegram_bot_not_configured");
+  if (!user.chatId) return;
   const copy = customerBotCopy(user.localeOverride ?? user.locale);
   const entitlements = await Entitlement.find({ orderId: order._id, status: "active" });
   let failed = false;
@@ -73,10 +81,12 @@ export async function deliverEntitlements(orderId: string) {
       );
       try {
         const currentAsset = await MediaAsset.findById(assetId);
+        const orderLine = order.lines.find((line: any) => String(line._id) === entitlement.orderLineId);
+        const caption = [orderLine?.productTitle, orderLine?.deliveryMessage].filter(Boolean).join("\n\n").slice(0, 1024);
         const message = await bot.telegram.sendDocument(
           user.chatId,
           currentAsset?.telegramFileId ?? snapshot.telegramFileId ?? Input.fromURLStream(await signedDownloadUrl(snapshot.storageKey), snapshot.fileName),
-          { protect_content: true, caption: order.lines.find((line: any) => String(line._id) === entitlement.orderLineId)?.productTitle },
+          { protect_content: true, caption },
         );
         const fileId = message.document?.file_id;
         if (fileId && currentAsset && !currentAsset.telegramFileId) await MediaAsset.updateOne({ _id: currentAsset._id }, { $set: { telegramFileId: fileId } });

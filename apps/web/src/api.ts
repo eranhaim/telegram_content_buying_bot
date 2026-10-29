@@ -5,7 +5,7 @@ export type Product = {
   previewMode: "none" | "blurred" | "visible"; categories: string[];
   preview?: { mimeType: string; url: string } | null; purchasesCount?: number;
 };
-export type Creator = { _id: string; displayName: string; slug: string; bio: string };
+export type Creator = { _id: string; displayName: string; slug: string; bio: string; avatarUrl?: string };
 
 let token = "";
 export function setToken(next: string) { token = next; }

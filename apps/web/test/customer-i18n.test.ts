@@ -13,6 +13,8 @@ test("every customer locale has complete fixed checkout and access copy", () => 
     const copy = customerCopy[locale];
     assert.ok(copy.secureCheckout);
     assert.ok(copy.paymentConfirmed);
+    assert.ok(copy.browserDeliveryNotice);
+    assert.ok(copy.download);
     assert.ok(copy.ageText);
     assert.equal(copy.guideSteps.length, 4);
   }
@@ -21,6 +23,6 @@ test("every customer locale has complete fixed checkout and access copy", () => 
 test("Hebrew enables RTL with localized customer text", () => {
   assert.equal(customerDirection("he"), "rtl");
   assert.equal(customerDirection("en"), "ltr");
-  assert.match(customerCopy.he.discoverTitle, /גלו/);
+  assert.match(customerCopy.he.discoverTitle, /תרכשו תוכן/);
   assert.match(customerCopy.he.secureCheckout, /תשלום/);
 });

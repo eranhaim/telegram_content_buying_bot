@@ -2,7 +2,7 @@ import cors from "cors";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
 import { config } from "./config.js";
-import { issueAdminSession, issueTelegramSession, requireActor, saveCustomerLocale, verifyAdminPassword } from "./auth.js";
+import { BROWSER_CUSTOMER_LABEL, isBrowserCustomer, issueAdminSession, issueBrowserSession, issueTelegramSession, requireActor, saveCustomerLocale, verifyAdminPassword } from "./auth.js";
 import { customerLocales } from "./customer-locale.js";
 import { Agency, Agent, AuditEvent, Cart, Category, Creator, Delivery, Entitlement, MediaAsset, Order, Product, TelegramUser, WebhookEvent } from "./models.js";
 import { applyMantapayPayment, createOrderForCart } from "./orders.js";
@@ -11,6 +11,7 @@ import { objectKey, signedDownloadUrl, signedUploadUrl, storedObject } from "./s
 import { deliverEntitlements } from "./telegram.js";
 import { rateLimit } from "./rate-limit.js";
 import { previewIsConfigured } from "./commerce.js";
+import { signedTelescopeUrl } from "./telescope-storage.js";
 
 const objectId = z.string().regex(/^[a-fA-F0-9]{24}$/);
 const objectIds = z.array(objectId).refine((ids) => new Set(ids).size === ids.length, "duplicate_ids");
@@ -31,15 +32,26 @@ const asyncRoute = (fn: (req: Request, res: Response) => Promise<unknown>) =>
   (req: Request, res: Response) => void fn(req, res).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : "server_error";
     const status = error instanceof z.ZodError ? 400
+      : message === "invalid_browser_session" ? 400
       : ["telegram_auth_unavailable", "invalid_telegram_init_data", "expired_telegram_init_data", "missing_telegram_user"].includes(message) ? 401
       : ["cart_empty", "unavailable_product", "mixed_currency_cart", "mixed_agency_cart", "age_confirmation_required", "agency_checkout_not_configured"].includes(message) ? 409
         : ["mantapay_not_configured", "object_storage_not_configured"].includes(message) ? 503 : 500;
     res.status(status).json({ error: message });
   });
-const actorUser = (req: Request) => req.actor?.kind === "telegram" ? req.actor.userId : null;
+const actorUser = (req: Request) => req.actor?.kind === "telegram" || req.actor?.kind === "browser" ? req.actor.userId : null;
 const previewMimeType = z.enum(["image/jpeg", "image/png", "image/webp", "video/mp4", "video/webm", "video/quicktime"]);
 const deliveryMimeType = z.string().regex(/^(image|video|audio|application)\//);
 const maxAssetBytes = 50_000_000;
+function productSlugBase(title: string) {
+  return title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "content";
+}
+async function nextProductSlug(title: string, creatorId: string) {
+  const base = productSlugBase(title);
+  let slug = base;
+  let suffix = 2;
+  while (await Product.exists({ creatorId, slug })) slug = `${base}-${suffix++}`;
+  return slug;
+}
 const catalogProduct = async (product: any, previews: Map<string, any>, categories: Map<string, any>) => {
   const preview = product.previewMode !== "none" && product.previewAssetId ? previews.get(String(product.previewAssetId)) : undefined;
   return {
@@ -49,6 +61,13 @@ const catalogProduct = async (product: any, previews: Map<string, any>, categori
     preview: preview ? { mimeType: preview.mimeType, url: await signedDownloadUrl(preview.storageKey) } : null,
   };
 };
+const catalogCreator = async (creator: any) => ({
+  _id: String(creator._id),
+  displayName: creator.displayName,
+  slug: creator.slug,
+  bio: creator.bio,
+  avatarUrl: await signedTelescopeUrl(creator.telescopeAvatarThumbKey ?? creator.telescopeAvatarKey),
+});
 const audit = (req: Request, action: string, entityType: string, entityId?: string, metadata?: unknown) =>
   AuditEvent.create({ actorType: req.actor?.kind ?? "system", actorId: req.actor?.kind === "admin" ? "shared-password" : req.actor?.kind === "telegram" ? req.actor.telegramId : undefined, action, entityType, entityId, metadata, ip: req.ip });
 
@@ -94,16 +113,21 @@ app.post("/api/auth/telegram", rateLimit(60_000, 30), asyncRoute(async (req, res
   const body = z.object({ initData: z.string().min(1) }).parse(req.body);
   res.json(await issueTelegramSession(body.initData));
 }));
+app.post("/api/auth/browser", rateLimit(60_000, 30), asyncRoute(async (req, res) => {
+  const body = z.object({ browserId: z.string().min(1) }).strict().parse(req.body);
+  res.json(await issueBrowserSession(body.browserId));
+}));
 app.post("/api/auth/admin", rateLimit(15 * 60_000, 10), asyncRoute(async (req, res) => {
   const body = z.object({ password: z.string().min(1) }).strict().parse(req.body);
   if (!verifyAdminPassword(body.password)) return res.status(401).json({ error: "invalid_credentials" });
   res.json({ token: issueAdminSession() });
 }));
 
-app.get("/api/catalog/creators", requireActor("telegram"), asyncRoute(async (_req, res) => {
-  res.json({ items: await Creator.find({ status: "published" }).select("displayName slug bio avatarAssetId").sort({ displayName: 1 }) });
+app.get("/api/catalog/creators", requireActor("customer"), asyncRoute(async (_req, res) => {
+  const creators = await Creator.find({ status: "published" }).sort({ displayName: 1 }).lean();
+  res.json({ items: await Promise.all(creators.map(catalogCreator)) });
 }));
-app.get("/api/catalog/creators/:slug/products", requireActor("telegram"), asyncRoute(async (req, res) => {
+app.get("/api/catalog/creators/:slug/products", requireActor("customer"), asyncRoute(async (req, res) => {
   const creator = await Creator.findOne({ slug: req.params.slug, status: "published" });
   if (!creator) return res.status(404).json({ error: "creator_not_found" });
   const products = await Product.find({ creatorId: creator._id, status: "published" }).select("-mediaAssetIds").sort({ createdAt: -1 });
@@ -115,9 +139,19 @@ app.get("/api/catalog/creators/:slug/products", requireActor("telegram"), asyncR
   ]);
   const previews = new Map(previewAssets.map((a: any) => [String(a._id), a]));
   const cats = new Map(categoryRecords.map((c: any) => [String(c._id), c]));
-  res.json({ creator, items: await Promise.all(products.map((p) => catalogProduct(p, previews, cats))) });
+  const items = await Promise.all(products.map((p) => catalogProduct(p, previews, cats)));
+  const featuredProduct = [...products]
+    .filter((product) => product.telescopeMediaKey)
+    .sort((a, b) => (b.telescopeClicks ?? 0) - (a.telescopeClicks ?? 0))[0];
+  const featuredVideo = featuredProduct
+    ? {
+      url: await signedTelescopeUrl(featuredProduct.telescopeMediaKey),
+      posterUrl: await signedTelescopeUrl(featuredProduct.telescopeThumbnailKey),
+    }
+    : undefined;
+  res.json({ creator: await catalogCreator(creator), items, featuredVideo });
 }));
-app.get("/api/catalog/products/:id", requireActor("telegram"), asyncRoute(async (req, res) => {
+app.get("/api/catalog/products/:id", requireActor("customer"), asyncRoute(async (req, res) => {
   if (!objectId.safeParse(req.params.id).success) return res.status(404).json({ error: "product_not_found" });
   const product = await Product.findOne({ _id: req.params.id, status: "published" }).select("-mediaAssetIds");
   if (!product) return res.status(404).json({ error: "product_not_found" });
@@ -126,20 +160,20 @@ app.get("/api/catalog/products/:id", requireActor("telegram"), asyncRoute(async 
   res.json(await catalogProduct(product, new Map(preview ? [[String(preview._id), preview]] : []), new Map(cats.map((c: any) => [String(c._id), c]))));
 }));
 
-app.put("/api/me/locale", requireActor("telegram"), asyncRoute(async (req, res) => {
+app.put("/api/me/locale", requireActor("customer"), asyncRoute(async (req, res) => {
   const body = z.object({ locale: z.enum(customerLocales) }).strict().parse(req.body);
   res.json({ locale: await saveCustomerLocale(actorUser(req)!, body.locale) });
 }));
-app.post("/api/me/age-confirmation", requireActor("telegram"), asyncRoute(async (req, res) => {
+app.post("/api/me/age-confirmation", requireActor("customer"), asyncRoute(async (req, res) => {
   const user = await TelegramUser.findByIdAndUpdate(actorUser(req), { $set: { ageConfirmedAt: new Date(), ageConfirmationVersion: "2026-10" } }, { new: true });
   if (!user) return res.status(404).json({ error: "user_not_found" });
   res.json({ confirmed: true, ageConfirmedAt: user.ageConfirmedAt });
 }));
-app.get("/api/cart", requireActor("telegram"), asyncRoute(async (req, res) => {
+app.get("/api/cart", requireActor("customer"), asyncRoute(async (req, res) => {
   const cart = await Cart.findOne({ telegramUserId: actorUser(req)!, status: "active" });
   res.json(cart ?? { items: [], currency: config.MARKETPLACE_CURRENCY });
 }));
-app.post("/api/cart/items", requireActor("telegram"), asyncRoute(async (req, res) => {
+app.post("/api/cart/items", requireActor("customer"), asyncRoute(async (req, res) => {
   const body = z.object({ productId: objectId }).parse(req.body);
   const product = await Product.findOne({ _id: body.productId, status: "published" });
   if (!product) return res.status(404).json({ error: "product_not_found" });
@@ -157,12 +191,12 @@ app.post("/api/cart/items", requireActor("telegram"), asyncRoute(async (req, res
   );
   res.status(201).json(cart);
 }));
-app.delete("/api/cart/items/:productId", requireActor("telegram"), asyncRoute(async (req, res) => {
+app.delete("/api/cart/items/:productId", requireActor("customer"), asyncRoute(async (req, res) => {
   await Cart.updateOne({ telegramUserId: actorUser(req), status: "active" }, { $pull: { items: { productId: req.params.productId } } });
   res.status(204).end();
 }));
 
-app.post("/api/checkout", requireActor("telegram"), rateLimit(60_000, 5), asyncRoute(async (req, res) => {
+app.post("/api/checkout", requireActor("customer"), rateLimit(60_000, 5), asyncRoute(async (req, res) => {
   const order = await createOrderForCart(actorUser(req)!);
   res.status(201).json({
     orderId: order.publicId, totalMinor: order.totalMinor, currency: order.currency,
@@ -175,7 +209,7 @@ app.get("/api/checkout/:publicId", rateLimit(60_000, 10), asyncRoute(async (req,
   if (!order || order.expiresAt < new Date() || !url) return res.status(410).send("This checkout session has expired.");
   res.redirect(302, url);
 }));
-app.get("/api/orders/:publicId", requireActor("telegram"), asyncRoute(async (req, res) => {
+app.get("/api/orders/:publicId", requireActor("customer"), asyncRoute(async (req, res) => {
   const order = await Order.findOne({ publicId: req.params.publicId, telegramUserId: actorUser(req) }).select("-returnNonce");
   if (!order) return res.status(404).json({ error: "order_not_found" });
   res.json(order);
@@ -185,10 +219,24 @@ app.get("/api/payment-return/:publicId", asyncRoute(async (req, res) => {
   if (!order) return res.status(404).json({ error: "order_not_found" });
   res.json(order);
 }));
-app.get("/api/purchases", requireActor("telegram"), asyncRoute(async (req, res) => {
-  res.json({ items: await Order.find({ telegramUserId: actorUser(req), paymentStatus: "paid" }).select("publicId lines paymentStatus fulfillmentStatus paidAt currency totalMinor").sort({ paidAt: -1 }) });
+app.get("/api/purchases", requireActor("customer"), asyncRoute(async (req, res) => {
+  const orders = await Order.find({ telegramUserId: actorUser(req), paymentStatus: "paid" }).select("publicId lines paymentStatus fulfillmentStatus paidAt currency totalMinor").sort({ paidAt: -1 }).lean();
+  if (req.actor?.kind !== "browser") return res.json({ items: orders });
+  res.json({ items: orders.map((order: any) => ({
+    publicId: order.publicId, paymentStatus: order.paymentStatus, fulfillmentStatus: order.fulfillmentStatus, paidAt: order.paidAt, currency: order.currency, totalMinor: order.totalMinor,
+    lines: (order.lines ?? []).map((line: any) => ({ productTitle: line.productTitle })),
+    files: (order.lines ?? []).flatMap((line: any) => (line.assets ?? []).map((asset: any) => ({ assetId: String(asset.assetId), fileName: asset.fileName, productTitle: line.productTitle }))),
+  })) });
 }));
-app.post("/api/purchases/:publicId/retry-delivery", requireActor("telegram"), asyncRoute(async (req, res) => {
+app.get("/api/purchases/:publicId/files/:assetId", requireActor("customer"), asyncRoute(async (req, res) => {
+  if (req.actor?.kind !== "browser") return res.status(403).json({ error: "forbidden" });
+  const order = await Order.findOne({ publicId: req.params.publicId, telegramUserId: actorUser(req), paymentStatus: "paid" });
+  if (!order) return res.status(404).json({ error: "order_not_found" });
+  const match = order.lines.flatMap((line: any) => line.assets ?? []).find((asset: any) => String(asset.assetId) === req.params.assetId);
+  if (!match?.storageKey) return res.status(404).json({ error: "file_not_found" });
+  res.json({ url: await signedDownloadUrl(match.storageKey, match.fileName), fileName: match.fileName });
+}));
+app.post("/api/purchases/:publicId/retry-delivery", requireActor("customer"), asyncRoute(async (req, res) => {
   const order = await Order.findOne({ publicId: req.params.publicId, telegramUserId: actorUser(req), paymentStatus: "paid" });
   if (!order) return res.status(404).json({ error: "order_not_found" });
   await Delivery.updateMany({ entitlementId: { $in: (await Entitlement.find({ orderId: order._id }).distinct("_id")) }, status: { $in: ["failed", "retry"] } }, { $set: { status: "queued", error: null } });
@@ -267,21 +315,35 @@ admin.post("/assets/:id/complete", asyncRoute(async (req, res) => {
   if (!object.bytes || object.bytes !== asset.bytes || object.bytes > maxAssetBytes || object.mimeType !== asset.mimeType) { await MediaAsset.updateOne({ _id: asset._id }, { $set: { status: "rejected" } }); return res.status(409).json({ error: "uploaded_media_invalid" }); }
   asset.status = "ready"; await asset.save(); await audit(req, "asset.complete", "media_asset", String(asset._id)); res.json(asset);
 }));
-admin.get("/assets", asyncRoute(async (_req, res) => res.json({ items: await MediaAsset.find().sort({ createdAt: -1 }) })));
+admin.get("/assets", asyncRoute(async (_req, res) => {
+  const assets = await MediaAsset.find().sort({ createdAt: -1 }).lean();
+  res.json({
+    items: await Promise.all(assets.map(async (asset: any) => ({
+      _id: String(asset._id),
+      agencyId: String(asset.agencyId),
+      fileName: asset.fileName,
+      mimeType: asset.mimeType,
+      purpose: asset.purpose,
+      status: asset.status,
+      createdAt: asset.createdAt,
+      url: asset.status === "ready" ? await signedDownloadUrl(asset.storageKey).catch(() => undefined) : undefined,
+    }))),
+  });
+}));
 
 admin.get("/products", asyncRoute(async (_req, res) => res.json({ items: await Product.find().sort({ createdAt: -1 }) })));
 admin.post("/products", asyncRoute(async (req, res) => {
-  const body = z.object({ agencyId: objectId, creatorId: objectId, title: z.string().min(1).max(200), slug: z.string().regex(/^[a-z0-9-]+$/), description: z.string().max(4000).default(""), categoryIds: objectIds, previewAssetId: objectId.optional(), previewMode: z.enum(["none", "blurred", "visible"]).default("blurred"), mediaAssetIds: nonEmptyObjectIds, amountMinor: euroMinor, currency: z.literal("EUR") }).parse(req.body);
+  const body = z.object({ agencyId: objectId, creatorId: objectId, title: z.string().min(1).max(200), slug: z.string().regex(/^[a-z0-9-]+$/).optional(), description: z.string().max(4000).default(""), deliveryMessage: z.string().max(1000).default(""), categoryIds: objectIds, previewAssetId: objectId.optional(), previewMode: z.enum(["none", "blurred", "visible"]).default("blurred"), mediaAssetIds: nonEmptyObjectIds, amountMinor: euroMinor, currency: z.literal("EUR") }).parse(req.body);
   const creator = await Creator.findOne({ _id: body.creatorId, agencyId: body.agencyId });
   if (!creator) return res.status(409).json({ error: "creator_agency_mismatch" });
   if (!previewIsConfigured(body.previewMode, body.previewAssetId) || (body.previewMode !== "none" && !await MediaAsset.exists({ _id: body.previewAssetId, agencyId: body.agencyId, purpose: "preview", status: "ready" }))) return res.status(409).json({ error: "preview_not_ready" });
   const [mediaCount, categoryCount] = await Promise.all([ MediaAsset.countDocuments({ _id: { $in: body.mediaAssetIds }, agencyId: body.agencyId, purpose: "delivery", status: "ready" }), Category.countDocuments({ _id: { $in: body.categoryIds }, agencyId: body.agencyId, status: "active" }) ]);
   if (mediaCount !== body.mediaAssetIds.length) return res.status(409).json({ error: "delivery_media_not_ready" });
   if (categoryCount !== body.categoryIds.length) return res.status(409).json({ error: "category_not_available" });
-  const product = await Product.create(body); await audit(req, "product.create", "product", String(product._id)); res.status(201).json(product);
+  const product = await Product.create({ ...body, slug: body.slug ?? await nextProductSlug(body.title, body.creatorId) }); await audit(req, "product.create", "product", String(product._id)); res.status(201).json(product);
 }));
 admin.patch("/products/:id", asyncRoute(async (req, res) => {
-  const body = z.object({ creatorId: objectId.optional(), title: z.string().min(1).max(200).optional(), slug: z.string().regex(/^[a-z0-9-]+$/).optional(), description: z.string().max(4000).optional(), categoryIds: objectIds.optional(), previewAssetId: objectId.nullable().optional(), previewMode: z.enum(["none", "blurred", "visible"]).optional(), amountMinor: euroMinor.optional(), status: z.enum(["draft", "review", "published", "archived"]).optional(), mediaAssetIds: nonEmptyObjectIds.optional(), currency: z.literal("EUR").optional() }).parse(req.body);
+  const body = z.object({ creatorId: objectId.optional(), title: z.string().min(1).max(200).optional(), slug: z.string().regex(/^[a-z0-9-]+$/).optional(), description: z.string().max(4000).optional(), deliveryMessage: z.string().max(1000).optional(), categoryIds: objectIds.optional(), previewAssetId: objectId.nullable().optional(), previewMode: z.enum(["none", "blurred", "visible"]).optional(), amountMinor: euroMinor.optional(), status: z.enum(["draft", "review", "published", "archived"]).optional(), mediaAssetIds: nonEmptyObjectIds.optional(), currency: z.literal("EUR").optional() }).parse(req.body);
   const product = await Product.findById(req.params.id); if (!product) return res.status(404).json({ error: "product_not_found" });
   const creatorId = body.creatorId ?? String(product.creatorId);
   const mediaAssetIds = body.mediaAssetIds ?? product.mediaAssetIds.map(String);
@@ -334,7 +396,7 @@ admin.get("/orders", asyncRoute(async (req, res) => {
   const userIds = [...new Set(orders.map((o: any) => String(o.telegramUserId)))];
   const users = await TelegramUser.find({ _id: { $in: userIds } }).lean();
   const userMap = new Map(users.map((u: any) => [String(u._id), u]));
-  res.json({ items: orders.map((o: any) => ({ _id: o._id, publicId: o.publicId, totalMinor: o.totalMinor, currency: o.currency, paymentStatus: o.paymentStatus, fulfillmentStatus: o.fulfillmentStatus, createdAt: o.createdAt, paidAt: o.paidAt, lines: (o.lines ?? []).map((l: any) => ({ productTitle: l.productTitle, creatorName: l.creatorName, amountMinor: l.amountMinor })), telegramUser: (() => { const u = userMap.get(String(o.telegramUserId)); return u ? { username: u.username, firstName: u.firstName } : null; })() })) });
+  res.json({ items: orders.map((o: any) => ({ _id: o._id, publicId: o.publicId, totalMinor: o.totalMinor, currency: o.currency, paymentStatus: o.paymentStatus, fulfillmentStatus: o.fulfillmentStatus, createdAt: o.createdAt, paidAt: o.paidAt, lines: (o.lines ?? []).map((l: any) => ({ productTitle: l.productTitle, creatorName: l.creatorName, amountMinor: l.amountMinor })), telegramUser: (() => { const u = userMap.get(String(o.telegramUserId)); if (!u) return null; return isBrowserCustomer(u) ? { firstName: BROWSER_CUSTOMER_LABEL } : { username: u.username, firstName: u.firstName }; })() })) });
 }));
 
 // --- Admin: Revenue summary ---

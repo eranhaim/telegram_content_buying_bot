@@ -15,7 +15,7 @@ import mongoose from "mongoose";
 import { config } from "./config.js";
 import { Agency, Agent, Category, Creator, MediaAsset, Product } from "./models.js";
 
-const TELESCOPE_URI = "mongodb+srv://eranhaim321_db_user:56bLnZ8kf9iqXNkU@cluster0.pncliin.mongodb.net/";
+const TELESCOPE_URI = process.env.TELESCOPE_MONGODB_URI;
 const TELESCOPE_DB = "test";
 
 const HIGHERPAYS_WORKSPACE_ID = "42fee9ae-ffb0-4565-9084-1e1cc994fd1b";
@@ -41,17 +41,22 @@ interface TelescopeMedia {
   s3Key: string;
   thumbnail?: string;
   isPublished?: boolean;
+  clicks?: number;
 }
 
 interface TelescopeProfile {
   _id: string;
   name: string;
   handle: string;
+  profileImage?: string;
+  profileImageThumb?: string;
   media: TelescopeMedia[];
   tags?: string[];
 }
 
 async function seed() {
+  if (!TELESCOPE_URI) throw new Error("TELESCOPE_MONGODB_URI is required");
+
   // Connect to Telescope (read-only).
   const telescopeClient = new MongoClient(TELESCOPE_URI);
   await telescopeClient.connect();
@@ -61,7 +66,7 @@ async function seed() {
   const profiles: TelescopeProfile[] = await telescopeDb
     .collection("profiles")
     .find({})
-    .project({ name: 1, handle: 1, media: 1, tags: 1 })
+    .project({ name: 1, handle: 1, profileImage: 1, profileImageThumb: 1, media: 1, tags: 1 })
     .toArray() as TelescopeProfile[];
   console.log(`Found ${profiles.length} profiles in Telescope.`);
 
@@ -127,6 +132,11 @@ async function seed() {
 
   for (const profile of withVideos) {
     const slug = slugify(profile.handle);
+    const creatorSource = {
+      telescopeProfileId: String(profile._id),
+      telescopeAvatarKey: profile.profileImage || undefined,
+      telescopeAvatarThumbKey: profile.profileImageThumb || undefined,
+    };
 
     // Creator.
     let creator = await Creator.findOne({ slug });
@@ -136,6 +146,7 @@ async function seed() {
         displayName: profile.name.trim(),
         slug,
         bio: `Content by ${profile.name.trim()}`,
+        ...creatorSource,
         higherPaysWorkspaceId: HIGHERPAYS_WORKSPACE_ID,
         higherPaysAccountId: HIGHERPAYS_MARKETPLACE_ACCOUNT_ID,
         status: "published",
@@ -148,6 +159,8 @@ async function seed() {
         },
       });
       totalCreators++;
+    } else {
+      await Creator.updateOne({ _id: creator._id }, { $set: creatorSource });
     }
 
     const videos = profile.media.filter(
@@ -160,7 +173,20 @@ async function seed() {
       const video = videos[i];
       const videoSlug = `${slug}-video-${i + 1}`;
       const existing = await Product.findOne({ creatorId: creator._id, slug: videoSlug });
-      if (existing) continue;
+      if (existing) {
+        await Product.updateOne(
+          { _id: existing._id },
+          {
+            $set: {
+              telescopeMediaId: String(video._id),
+              telescopeMediaKey: video.s3Key,
+              telescopeThumbnailKey: video.thumbnail,
+              telescopeClicks: video.clicks || 0,
+            },
+          },
+        );
+        continue;
+      }
 
       // Create a delivery media asset pointing to the Telescope S3 key.
       // The fix-telescope-previews script copies actual files to marketplace MinIO.
@@ -205,6 +231,10 @@ async function seed() {
         previewMode,
         previewAssetId,
         mediaAssetIds: [deliveryAsset._id],
+        telescopeMediaId: String(video._id),
+        telescopeMediaKey: video.s3Key,
+        telescopeThumbnailKey: video.thumbnail,
+        telescopeClicks: video.clicks || 0,
         amountMinor,
         currency: "EUR",
         status: "published",
