@@ -979,6 +979,7 @@ fieldset input { width: auto; margin-inline-end: 8px; }
 
 @media (min-width: 600px) {
   .creator-grid, .reel-grid { grid-template-columns: repeat(2, 1fr); }
+  .admin-content-grid { grid-template-columns: 1fr; }
   .customer-appbar, .customer-main { padding-inline: 24px; }
   .customer-nav {
     right: auto;
