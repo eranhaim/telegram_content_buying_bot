@@ -798,6 +798,11 @@ fieldset input { width: auto; margin-inline-end: 8px; }
 .customer-shell[dir="rtl"] .appbar-locale { direction: ltr; }
 .customer-shell[dir="rtl"] .guide-steps li { box-shadow: inset -3px 0 0 var(--copper); }
 .customer-main .creator-grid, .customer-main .reel-grid { margin: 0; padding: 0; background: transparent; border: 0; border-radius: 0; }
+@media (max-width: 599px) {
+  .customer-main .reel-preview { aspect-ratio: auto; height: clamp(150px, 28dvh, 220px); }
+  .customer-main .reel-copy { padding: 10px 12px 12px; }
+  .customer-main .reel-copy h2 { font-size: 1.05rem; }
+}
 
 .admin { width: min(1100px, 100%); }
 .admin-gate {
