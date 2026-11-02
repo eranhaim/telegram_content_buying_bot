@@ -547,10 +547,11 @@ function ProductEditor({ product, assets, categories, t, close, load }: { produc
   const [previewId, setPreviewId] = useState(product.previewAssetId ?? "");
   const [preview, setPreview] = useState(assets.find((asset) => asset._id === product.previewAssetId));
   const [categoryIds, setCategoryIds] = useState(product.categoryIds ?? []);
+  const [mediaIds, setMediaIds] = useState(product.mediaAssetIds);
   const [mediaIndex, setMediaIndex] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const currentMedia = assets.find((asset) => asset._id === product.mediaAssetIds[mediaIndex]);
+  const currentMedia = assets.find((asset) => asset._id === mediaIds[mediaIndex]);
   const uploadPreview = async (file?: File) => {
     if (!file) return;
     setBusy(true); setError("");
@@ -567,7 +568,7 @@ function ProductEditor({ product, assets, categories, t, close, load }: { produc
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const data = new FormData(event.currentTarget); setBusy(true); setError("");
     try {
-      await request(`/admin/products/${product._id}`, { method: "PATCH", body: JSON.stringify({ title: data.get("title"), description: data.get("description"), deliveryMessage: data.get("deliveryMessage"), amountMinor: euroToMinor(data.get("price")), categoryIds, previewMode: data.get("previewMode"), previewAssetId: data.get("previewMode") === "none" ? null : previewId || undefined }) });
+      await request(`/admin/products/${product._id}`, { method: "PATCH", body: JSON.stringify({ title: data.get("title"), description: data.get("description"), deliveryMessage: data.get("deliveryMessage"), amountMinor: euroToMinor(data.get("price")), categoryIds, ...(JSON.stringify(mediaIds) !== JSON.stringify(product.mediaAssetIds) ? { mediaAssetIds: mediaIds } : {}), previewMode: data.get("previewMode"), previewAssetId: data.get("previewMode") === "none" ? null : previewId || undefined }) });
       load(); close();
     } catch { setError(t.saveFailed); } finally { setBusy(false); }
   };
@@ -578,9 +579,9 @@ function ProductEditor({ product, assets, categories, t, close, load }: { produc
     <label>{t.description}<textarea name="description" defaultValue={product.description} /></label>
     <label>{t.deliveryMessage}<textarea name="deliveryMessage" defaultValue={product.deliveryMessage} maxLength={1000} /></label>
     <fieldset><legend>{t.storefrontPreview}</legend><div className="editor-preview">{preview ? <AdminAssetVisual asset={preview} unavailable={t.noPreviewMedia} /> : <div className="asset-visual-fallback">{t.noPreviewMedia}</div>}</div><label className="preview-upload">{t.changePreview}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={(event) => void uploadPreview(event.target.files?.[0])} /></label><label>{t.preview}<select name="previewMode" defaultValue={product.previewMode}><option value="none">{t.noPreviewOption}</option><option value="blurred">{t.blurredPreviewOption}</option><option value="visible">{t.visiblePreviewOption}</option></select></label></fieldset>
-    <fieldset><legend>{t.privateFiles}</legend><div className="editor-player">{currentMedia ? <AdminAssetVisual asset={currentMedia} unavailable={t.noPreviewMedia} /> : <div className="asset-visual-fallback">{t.noMedia}</div>}</div><div className="editor-media-nav"><button type="button" disabled={mediaIndex === 0} onClick={() => setMediaIndex(mediaIndex - 1)} aria-label={t.previousPage}>←</button><span>{product.mediaAssetIds.length ? mediaIndex + 1 : 0} / {product.mediaAssetIds.length}</span><button type="button" disabled={mediaIndex >= product.mediaAssetIds.length - 1} onClick={() => setMediaIndex(mediaIndex + 1)} aria-label={t.nextPage}>→</button></div>{currentMedia && <small>{currentMedia.fileName}</small>}</fieldset>
+    <fieldset><legend>{t.privateFiles}</legend><div className="editor-player">{currentMedia ? <AdminAssetVisual asset={currentMedia} unavailable={t.noPreviewMedia} /> : <div className="asset-visual-fallback">{t.noMedia}</div>}</div><div className="editor-media-nav"><button type="button" disabled={mediaIndex === 0} onClick={() => setMediaIndex(mediaIndex - 1)} aria-label={t.previousPage}>←</button><span>{mediaIds.length ? mediaIndex + 1 : 0} / {mediaIds.length}</span><button type="button" disabled={mediaIndex >= mediaIds.length - 1} onClick={() => setMediaIndex(mediaIndex + 1)} aria-label={t.nextPage}>→</button></div>{currentMedia && <small>{currentMedia.fileName}</small>}<details><summary>{t.selectFiles}</summary>{assets.filter((asset) => (asset.purpose ?? "delivery") === "delivery" && asset.status === "ready").map((asset) => <label key={asset._id}><input type="checkbox" checked={mediaIds.includes(asset._id)} onChange={(event) => { setMediaIds(event.target.checked ? [...mediaIds, asset._id] : mediaIds.filter((id) => id !== asset._id)); setMediaIndex(0); }} /> {asset.fileName}</label>)}</details></fieldset>
     <fieldset><legend>{t.categories}</legend>{categories.filter((category) => category.status === "active" || categoryIds.includes(category._id)).map((category) => <label key={category._id}><input type="checkbox" checked={categoryIds.includes(category._id)} onChange={(event) => setCategoryIds(event.target.checked ? [...categoryIds, category._id] : categoryIds.filter((id) => id !== category._id))} /> {category.name}</label>)}</fieldset>
-    <button className="dialog-submit" disabled={busy}>{t.save}</button>
+    <button className="dialog-submit" disabled={busy || !mediaIds.length}>{t.save}</button>
   </form></Dialog>;
 }
 
