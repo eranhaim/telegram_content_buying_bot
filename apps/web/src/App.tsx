@@ -204,63 +204,12 @@ function ContentGrid({ items, add, empty, renderCopy, addCard, className = "", t
   </article>)}{addCard}{!items.length && empty}</section>;
 }
 
-type FeaturedVideo = { url?: string; posterUrl?: string };
-const FEATURED_VIDEO_CLIP_SECONDS = 12;
-
-function FeaturedCreatorVideo({ video, posterUrl, label, unavailable }: { video?: FeaturedVideo; posterUrl?: string; label: string; unavailable: string }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [inView, setInView] = useState(false);
-  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-  useEffect(() => {
-    const element = videoRef.current;
-    if (!element || !video?.url || reducedMotion) return;
-    const observer = new IntersectionObserver(([entry]) => {
-      setInView(entry.isIntersecting);
-      if (entry.isIntersecting) void element.play().catch(() => {});
-      else element.pause();
-    }, { threshold: 0.55, rootMargin: "120px 0px" });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [reducedMotion, video?.url]);
-
-  return <section className="featured-video-card" aria-label={label}>
-    <div className="featured-video-frame">
-      {video?.url && !reducedMotion
-        ? <video
-          ref={videoRef}
-          src={inView ? video.url : undefined}
-          poster={video.posterUrl || posterUrl}
-          muted
-          playsInline
-          preload="none"
-          aria-hidden="true"
-          onTimeUpdate={(event) => {
-            if (event.currentTarget.currentTime >= FEATURED_VIDEO_CLIP_SECONDS) {
-              event.currentTarget.currentTime = 0;
-              void event.currentTarget.play().catch(() => {});
-            }
-          }}
-          onEnded={(event) => {
-            event.currentTarget.currentTime = 0;
-            void event.currentTarget.play().catch(() => {});
-          }}
-        />
-        : posterUrl
-          ? <img src={video?.posterUrl || posterUrl} alt="" width="720" height="420" />
-          : <div className="featured-video-empty">{unavailable}</div>}
-      <div className="featured-video-overlay"><span>{label}</span><i aria-hidden="true">▶</i></div>
-    </div>
-  </section>;
-}
-
 function CreatorPage({ t, locale, onCartChange }: { t: CustomerText; locale: CustomerLocale; onCartChange: () => void }) {
   const { slug } = useParams();
   const [items, setItems] = useState<Product[]>([]);
   const [creator, setCreator] = useState<Creator | null>(null);
-  const [featuredVideo, setFeaturedVideo] = useState<FeaturedVideo>();
   const [notice, setNotice] = useState("");
-  useEffect(() => { void request<{ creator: Creator; items: Product[]; featuredVideo?: FeaturedVideo }>(`/catalog/creators/${slug}/products`).then((result) => { setCreator(result.creator); setItems(result.items); setFeaturedVideo(result.featuredVideo); }).catch(() => setNotice(t.creatorUnavailable)); }, [slug, t.creatorUnavailable]);
+  useEffect(() => { void request<{ creator: Creator; items: Product[] }>(`/catalog/creators/${slug}/products`).then((result) => { setCreator(result.creator); setItems(result.items); }).catch(() => setNotice(t.creatorUnavailable)); }, [slug, t.creatorUnavailable]);
   const add = async (productId: string) => {
     try { await request("/cart/items", { method: "POST", body: JSON.stringify({ productId }) }); setNotice(t.addedToCart); onCartChange(); }
     catch { setNotice(t.cartUpdateFailed); }
@@ -279,7 +228,6 @@ function CreatorPage({ t, locale, onCartChange }: { t: CustomerText; locale: Cus
         <p>{creator?.bio}</p>
       </div>
     </section>
-    <FeaturedCreatorVideo video={featuredVideo} posterUrl={creator?.avatarUrl} label={t.featuredVideo} unavailable={t.featuredVideoUnavailable} />
     {notice && <p role="status" className="notice">{notice}</p>}
     <ContentGrid items={items} add={add} t={t} locale={locale} empty={<p className="empty">{t.noContent}</p>} />
   </main>;
