@@ -410,9 +410,17 @@ admin.get("/orders", asyncRoute(async (req, res) => {
   res.json({ page: q.page, total, pages: Math.max(1, Math.ceil(total / limit)), items: orders.map((o: any) => ({ _id: o._id, publicId: o.publicId, totalMinor: o.totalMinor, currency: o.currency, paymentStatus: o.paymentStatus, fulfillmentStatus: o.fulfillmentStatus, createdAt: o.createdAt, paidAt: o.paidAt, lines: (o.lines ?? []).map((l: any) => ({ productTitle: l.productTitle, creatorName: l.creatorName, amountMinor: l.amountMinor })), telegramUser: (() => { const u = userMap.get(String(o.telegramUserId)); if (!u) return null; return isBrowserCustomer(u) ? { firstName: BROWSER_CUSTOMER_LABEL } : { username: u.username, firstName: u.firstName, lastName: u.lastName }; })() })) });
 }));
 
-admin.get("/customers", asyncRoute(async (_req, res) => {
-  const users = await TelegramUser.find({ telegramId: { $not: /^browser:/ } }).select("telegramId username firstName lastName").sort({ createdAt: -1 }).lean();
-  res.json({ items: users.filter((u: any) => !isBrowserCustomer(u)) });
+admin.get("/customers", asyncRoute(async (req, res) => {
+  const { search } = z.object({ search: z.string().max(100).optional() }).parse(req.query);
+  const range = adminDateRange(req.query);
+  const words = (search ?? "").trim().replace(/^@/, "").split(/\s+/).filter(Boolean).map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const filter = { telegramId: { $not: /^browser:/ }, ...(words.length ? { $and: words.map((word) => ({ $or: ["firstName", "lastName", "username", "telegramId"].map((field) => ({ [field]: { $regex: word, $options: "i" } })) })) } : {}) };
+  const [users, totals] = await Promise.all([
+    TelegramUser.find(filter).select("telegramId username firstName lastName").sort({ createdAt: -1 }).lean(),
+    Order.aggregate([{ $match: { paymentStatus: "paid", ...(range ? { paidAt: range } : {}) } }, { $group: { _id: "$telegramUserId", totalMinor: { $sum: "$totalMinor" }, purchases: { $sum: 1 } } }]),
+  ]);
+  const byUser = new Map(totals.map((total: any) => [String(total._id), total]));
+  res.json({ items: users.filter((user: any) => !isBrowserCustomer(user)).map((user: any) => ({ ...user, totalMinor: byUser.get(String(user._id))?.totalMinor ?? 0, purchases: byUser.get(String(user._id))?.purchases ?? 0 })) });
 }));
 
 // --- Admin: Revenue summary ---

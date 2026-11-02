@@ -609,11 +609,23 @@ function AdminCategories({ categories, products, t, submit, editProduct, startDe
 }
 
 function AdminCustomers({ t }: { t: typeof adminCopy.en }) {
-  const [customers, setCustomers] = useState<{ _id: string; telegramId: string; username?: string; firstName?: string; lastName?: string }[]>([]);
+  const [customers, setCustomers] = useState<{ _id: string; telegramId: string; username?: string; firstName?: string; lastName?: string; totalMinor: number; purchases: number }[]>([]);
   const [selected, setSelected] = useState<string>();
   const [error, setError] = useState(false);
-  useEffect(() => { void request<{ items: typeof customers }>("/admin/customers").then((result) => setCustomers(result.items)).catch(() => setError(true)); }, []);
-  return <><section className="admin-intro"><h2>{t.customers}</h2></section>{error ? <p role="alert">{t.requestFailed}</p> : <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Telegram ID</th><th>{t.customer}</th></tr></thead><tbody>{customers.map((customer) => <tr key={customer._id} onClick={() => setSelected(selected === customer._id ? undefined : customer._id)}><td><button type="button" className="plain-button">{customer.telegramId}</button></td><td>{[customer.firstName, customer.lastName].filter(Boolean).join(" ") || (customer.username ? `@${customer.username}` : "—")}</td></tr>)}</tbody></table></div>}{selected && <section><h2>{t.customerOrders}</h2><AdminOrders key={selected} t={t} customerId={selected} /></section>}</>;
+  const [search, setSearch] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  useEffect(() => {
+    let active = true;
+    const query = new URLSearchParams();
+    if (search.trim()) query.set("search", search.trim());
+    if (from) query.set("from", from);
+    if (to) query.set("to", to);
+    setError(false);
+    void request<{ items: typeof customers }>(`/admin/customers?${query}`).then((result) => { if (active) setCustomers(result.items); }).catch(() => { if (active) setError(true); });
+    return () => { active = false; };
+  }, [search, from, to]);
+  return <><section className="admin-intro"><h2>{t.customers}</h2></section><div className="admin-filter-fields"><label>{t.customerSearch}<input type="search" value={search} onChange={(event) => setSearch(event.target.value)} /></label><label>{t.fromDate}<input type="date" value={from} max={to || undefined} onChange={(event) => setFrom(event.target.value)} /></label><label>{t.toDate}<input type="date" value={to} min={from || undefined} onChange={(event) => setTo(event.target.value)} /></label></div><p className="help">{t.customerTotalsHelp}</p>{error ? <p role="alert">{t.requestFailed}</p> : <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Telegram ID</th><th>{t.customer}</th><th>{t.telegramUsername}</th><th>{t.customerPaidTotal}</th><th>{t.paidOrders}</th></tr></thead><tbody>{customers.map((customer) => <tr key={customer._id} onClick={() => setSelected(selected === customer._id ? undefined : customer._id)}><td><button type="button" className="plain-button">{customer.telegramId}</button></td><td>{[customer.firstName, customer.lastName].filter(Boolean).join(" ") || "—"}</td><td dir="ltr">{customer.username ? `@${customer.username}` : "—"}</td><td className="ltr-value" dir="ltr">{money(customer.totalMinor, "EUR")}</td><td>{customer.purchases}</td></tr>)}</tbody></table></div>}{selected && <section><h2>{t.customerOrders}</h2><AdminOrders key={selected} t={t} customerId={selected} /></section>}</>;
 }
 
 function Marketplace() {

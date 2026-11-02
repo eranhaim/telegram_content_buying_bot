@@ -35,6 +35,7 @@ type AdminCopy = {
   changePreview: string; productsLabel: string; categorySlugHelp: string;
   deleteAction: string; deleteTitle: string; deleteWarning: string; typeConfirm: string; deleteFailed: string; creatorHasProducts: string;
   deleteCategoryImpact: string; deleteProductImpact: string; deleteCreatorImpact: string;
+  customerTotalsHelp: string; customerPaidTotal: string; telegramUsername: string;
 };
 
 export const adminCopy: Record<AdminLanguage, AdminCopy> = {
@@ -56,6 +57,7 @@ export const adminCopy: Record<AdminLanguage, AdminCopy> = {
     changePreview: "Upload a new preview photo", productsLabel: "products", categorySlugHelp: "A unique internal identifier, not shown to customers. Use lowercase English letters, numbers and hyphens—for example, videos.",
     deleteAction: "Delete", deleteTitle: "Permanently delete", deleteWarning: "This permanently removes:", typeConfirm: "Type confirm and press Enter to delete.", deleteFailed: "Could not delete. Please try again.", creatorHasProducts: "Delete this creator’s products first. Existing orders will be retained.",
     deleteCategoryImpact: "The category will be removed from products; products and past orders will remain.", deleteProductImpact: "This product will also be removed from active carts. Past orders and delivery files remain.", deleteCreatorImpact: "Delete the creator’s products first. Past orders remain.",
+    customerTotalsHelp: "Totals and paid-order counts reflect the selected payment dates (UTC). Customers without payments in the range remain visible.", customerPaidTotal: "Total paid", telegramUsername: "Telegram username",
   },
   he: {
     language: "שפה", english: "English", hebrew: "עברית", signIn: "כניסת מנהל", password: "סיסמה",
@@ -75,6 +77,7 @@ export const adminCopy: Record<AdminLanguage, AdminCopy> = {
     changePreview: "העלאת תמונת תצוגה חדשה", productsLabel: "מוצרים", categorySlugHelp: "מזהה פנימי ייחודי שאינו מוצג ללקוחות. יש להשתמש באותיות אנגליות קטנות, מספרים ומקפים בלבד, למשל: videos.",
     deleteAction: "מחיקה", deleteTitle: "מחיקה לצמיתות", deleteWarning: "הפעולה תמחק לצמיתות את:", typeConfirm: "יש להקליד confirm וללחוץ Enter כדי למחוק.", deleteFailed: "לא ניתן למחוק. נסו שוב.", creatorHasProducts: "יש למחוק קודם את המוצרים של היוצר/ת. ההזמנות הקיימות יישמרו.",
     deleteCategoryImpact: "הקטגוריה תוסר מהמוצרים; המוצרים וההזמנות הקודמות יישמרו.", deleteProductImpact: "המוצר יוסר גם מעגלות פעילות. הזמנות קודמות וקובצי מסירה יישמרו.", deleteCreatorImpact: "יש למחוק קודם את מוצרי היוצר/ת. הזמנות קודמות יישמרו.",
+    customerTotalsHelp: "הסכומים ומספר ההזמנות ששולמו מחושבים לפי תאריכי התשלום שנבחרו (UTC). גם לקוחות ללא תשלום בטווח מוצגים.", customerPaidTotal: "סה״כ שולם", telegramUsername: "שם משתמש בטלגרם",
   },
 };
 
