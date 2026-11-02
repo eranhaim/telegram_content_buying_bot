@@ -32,6 +32,7 @@ type AdminCopy = {
   creatorRevenue: string; purchases: string; noSalesYet: string;
   customers: string; customerOrders: string; customerSearch: string; fromDate: string; toDate: string;
   productsInCategory: string; noCategoryProducts: string; archived: string; archiveConfirm: string; cancel: string;
+  changePreview: string; productsLabel: string;
 };
 
 export const adminCopy: Record<AdminLanguage, AdminCopy> = {
@@ -50,6 +51,7 @@ export const adminCopy: Record<AdminLanguage, AdminCopy> = {
     ordersTitle: "Orders", noOrders: "No orders found.", filterAll: "All", date: "Date", customer: "Customer", items: "Items", total: "Total", payment: "Payment", fulfillment: "Fulfillment", orderId: "Order ID",
     revenueTitle: "Revenue", totalRevenue: "Total revenue", todayRevenue: "Today", monthRevenue: "This month", paidOrders: "Paid orders", pendingOrders: "Pending", expiredOrders: "Expired", creatorRevenue: "Revenue by creator", purchases: "Purchases", noSalesYet: "No sales yet.",
     customers: "Customers", customerOrders: "Customer orders", customerSearch: "Search customer name or username", fromDate: "From date (UTC)", toDate: "To date (UTC)", productsInCategory: "Products in this category", noCategoryProducts: "No products in this category.", archived: "Archived", archiveConfirm: "Archive this category? It will no longer appear to customers.", cancel: "Cancel",
+    changePreview: "Upload a new preview photo", productsLabel: "products",
   },
   he: {
     language: "שפה", english: "English", hebrew: "עברית", signIn: "כניסת מנהל", password: "סיסמה",
@@ -66,6 +68,7 @@ export const adminCopy: Record<AdminLanguage, AdminCopy> = {
     ordersTitle: "הזמנות", noOrders: "לא נמצאו הזמנות.", filterAll: "הכל", date: "תאריך", customer: "לקוח/ה", items: "פריטים", total: "סה״כ", payment: "תשלום", fulfillment: "מסירה", orderId: "מזהה הזמנה",
     revenueTitle: "הכנסות", totalRevenue: "סה״כ הכנסות", todayRevenue: "היום", monthRevenue: "החודש", paidOrders: "הזמנות ששולמו", pendingOrders: "ממתינות", expiredOrders: "פגו תוקף", creatorRevenue: "הכנסות לפי יוצר/ת", purchases: "רכישות", noSalesYet: "עדיין אין מכירות.",
     customers: "לקוחות", customerOrders: "הזמנות הלקוח/ה", customerSearch: "חיפוש לפי שם או שם משתמש", fromDate: "מתאריך (UTC)", toDate: "עד תאריך (UTC)", productsInCategory: "מוצרים בקטגוריה", noCategoryProducts: "אין מוצרים בקטגוריה זו.", archived: "בארכיון", archiveConfirm: "להעביר את הקטגוריה לארכיון? היא לא תוצג יותר ללקוחות.", cancel: "ביטול",
+    changePreview: "העלאת תמונת תצוגה חדשה", productsLabel: "מוצרים",
   },
 };
 

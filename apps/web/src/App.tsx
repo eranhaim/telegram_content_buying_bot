@@ -28,6 +28,7 @@ type AdminAsset = { _id: string; fileName: string; mimeType: string; status: str
 type AdminCategory = { _id: string; name: string; slug: string; status: string };
 type AdminProduct = {
   _id: string; creatorId: string; title: string; slug: string; description: string; status: string;
+  grossMinor?: number;
   deliveryMessage?: string; amountMinor: number; currency: "EUR"; categoryIds: string[]; previewAssetId?: string; previewMode: "none" | "blurred" | "visible"; mediaAssetIds: string[];
 };
 type AdminOrder = {
@@ -380,6 +381,7 @@ function Admin() {
   const [showCreatorDialog, setShowCreatorDialog] = useState(false);
   const [showContentDialog, setShowContentDialog] = useState(false);
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
+  const [editingProduct, setEditingProduct] = useState<AdminProduct | null>(null);
   const t = adminCopy[language];
   const selectedCreator = creators.find((creator) => creator._id === creatorId);
   const direction = adminDirection(language);
@@ -452,10 +454,11 @@ function Admin() {
     {notice && <p role="status" className="notice">{notice}</p>}
     {isOrders && <AdminOrders t={t} />}
     {isRevenue && <AdminRevenue t={t} />}
-    {creatorId ? selectedCreator ? <AdminCreatorContent creator={selectedCreator} products={currentProducts} assets={currentAssets} categories={categories} t={t} selectedAssetIds={selectedAssetIds} setSelectedAssetIds={setSelectedAssetIds} showDialog={showContentDialog} openDialog={() => setShowContentDialog(true)} closeDialog={() => setShowContentDialog(false)} upload={upload} submit={submit} publish={publishProduct} load={load} /> : <p className="empty">{t.loading}</p> : null}
+    {creatorId ? selectedCreator ? <AdminCreatorContent creator={selectedCreator} products={currentProducts} assets={currentAssets} categories={categories} t={t} selectedAssetIds={selectedAssetIds} setSelectedAssetIds={setSelectedAssetIds} showDialog={showContentDialog} openDialog={() => setShowContentDialog(true)} closeDialog={() => setShowContentDialog(false)} upload={upload} submit={submit} publish={publishProduct} load={load} editProduct={setEditingProduct} /> : <p className="empty">{t.loading}</p> : null}
     {isCatalogue && <AdminCatalogue creators={creators} t={t} showDialog={showCreatorDialog} openDialog={() => setShowCreatorDialog(true)} closeDialog={() => setShowCreatorDialog(false)} submit={submit} publish={publishCreator} />}
-    {isCategories && <AdminCategories categories={categories} products={products} t={t} submit={submit} load={load} />}
+    {isCategories && <AdminCategories categories={categories} products={products} t={t} submit={submit} load={load} editProduct={setEditingProduct} />}
     {isCustomers && <AdminCustomers t={t} />}
+    {editingProduct && <ProductEditor key={editingProduct._id} product={editingProduct} assets={assets} categories={categories} t={t} close={() => setEditingProduct(null)} load={load} />}
   </main>;
 }
 
@@ -518,14 +521,14 @@ function DeliveryAssetCard({ asset, selected, onToggle, t }: { asset: AdminAsset
   </label>;
 }
 
-function AdminCreatorContent({ creator, products, assets, categories, t, selectedAssetIds, setSelectedAssetIds, showDialog, openDialog, closeDialog, upload, submit, publish, load }: { creator: AdminCreator; products: AdminProduct[]; assets: AdminAsset[]; categories: AdminCategory[]; t: typeof adminCopy.en; selectedAssetIds: string[]; setSelectedAssetIds: (ids: string[]) => void; showDialog: boolean; openDialog: () => void; closeDialog: () => void; upload: (event: FormEvent<HTMLFormElement>) => Promise<void>; submit: AdminSubmit; publish: (id: string) => void; load: () => void }) {
+function AdminCreatorContent({ creator, products, assets, categories, t, selectedAssetIds, setSelectedAssetIds, showDialog, openDialog, closeDialog, upload, submit, publish, load, editProduct }: { creator: AdminCreator; products: AdminProduct[]; assets: AdminAsset[]; categories: AdminCategory[]; t: typeof adminCopy.en; selectedAssetIds: string[]; setSelectedAssetIds: (ids: string[]) => void; showDialog: boolean; openDialog: () => void; closeDialog: () => void; upload: (event: FormEvent<HTMLFormElement>) => Promise<void>; submit: AdminSubmit; publish: (id: string) => void; load: () => void; editProduct: (product: AdminProduct) => void }) {
   const navigate = useNavigate();
   const [editing, setEditing] = useState<AdminProduct | null>(null);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [previewAssetId, setPreviewAssetId] = useState("");
   const [deliveryPage, setDeliveryPage] = useState(1);
   const openNew = () => { setEditing(null); setSelectedAssetIds([]); setSelectedCategoryIds([]); setPreviewAssetId(""); setDeliveryPage(1); openDialog(); };
-  const openEdit = (product: AdminProduct) => { setEditing(product); setSelectedAssetIds(product.mediaAssetIds); setSelectedCategoryIds(product.categoryIds); setPreviewAssetId(product.previewAssetId ?? ""); setDeliveryPage(1); openDialog(); };
+  const openEdit = (product: AdminProduct) => editProduct(product);
   const deliveryAssets = assets.filter((asset) => (asset.purpose ?? "delivery") === "delivery");
   const pageSize = 8;
   const pageCount = Math.max(1, Math.ceil(deliveryAssets.length / pageSize));
@@ -540,11 +543,54 @@ function AdminCreatorContent({ creator, products, assets, categories, t, selecte
     {showDialog && <Dialog title={editing ? t.editContent : t.newContent} close={closeDialog} closeLabel={t.close}><form onSubmit={(event) => void submit(event, editing ? `/admin/products/${editing._id}` : "/admin/products", (data) => ({ ...(editing ? {} : { creatorId: creator._id }), title: data.get("title"), description: data.get("description"), deliveryMessage: data.get("deliveryMessage"), categoryIds: selectedCategoryIds, previewMode: data.get("previewMode"), previewAssetId: data.get("previewMode") === "none" ? null : previewAssetId || undefined, mediaAssetIds: selectedAssetIds, amountMinor: euroToMinor(data.get("price")), currency: "EUR" }), editing ? t.saved : t.productCreated, editing ? "PATCH" : "POST").then((saved) => { if (saved) closeDialog(); })}><label>{t.productTitle}<input name="title" defaultValue={editing?.title} required /></label><label>{t.deliveryMessage}<textarea name="deliveryMessage" defaultValue={editing?.deliveryMessage} maxLength={1000} /></label><label>{t.description}<textarea name="description" defaultValue={editing?.description} /></label><label>{t.price}<input name="price" type="text" inputMode="decimal" pattern="\d+(\.\d{1,2})?" defaultValue={editing ? (editing.amountMinor / 100).toFixed(2) : ""} required /></label><label>{t.preview}<select name="previewMode" defaultValue={editing?.previewMode ?? "blurred"}><option value="none">{t.noPreviewOption}</option><option value="blurred">{t.blurredPreviewOption}</option><option value="visible">{t.visiblePreviewOption}</option></select></label><AdminAssetPicker assets={assets} selectedId={previewAssetId} onChange={setPreviewAssetId} t={t} /><fieldset><legend>{t.categories}</legend>{categories.filter((category) => category.status === "active").map((category) => <label key={category._id}><input type="checkbox" checked={selectedCategoryIds.includes(category._id)} onChange={(event) => setSelectedCategoryIds(event.target.checked ? [...selectedCategoryIds, category._id] : selectedCategoryIds.filter((id) => id !== category._id))} /> {category.name}</label>)}</fieldset><fieldset><legend>{t.privateFiles}</legend><div className="delivery-asset-grid">{visibleDeliveryAssets.map((asset) => <DeliveryAssetCard key={asset._id} asset={asset} selected={selectedAssetIds.includes(asset._id)} onToggle={() => setSelectedAssetIds(selectedAssetIds.includes(asset._id) ? selectedAssetIds.filter((id) => id !== asset._id) : [...selectedAssetIds, asset._id])} t={t} />)}</div>{!deliveryAssets.length && <p className="help">{t.noMedia}</p>}<div className="asset-pagination"><span>{selectedAssetIds.length} {t.selected}</span><button type="button" className="plain-button" disabled={deliveryPage <= 1} onClick={() => setDeliveryPage((page) => page - 1)}>{t.previousPage}</button><span>{deliveryPage} / {pageCount}</span><button type="button" className="plain-button" disabled={deliveryPage >= pageCount} onClick={() => setDeliveryPage((page) => page + 1)}>{t.nextPage}</button></div></fieldset><button className="dialog-submit" disabled={!selectedAssetIds.length}>{editing ? t.save : t.createProduct}</button></form><section className="upload-panel"><h3>{t.uploadMedia}</h3><form onSubmit={(event) => void upload(event)}><label>{t.uploadPurpose}<select name="purpose" defaultValue="delivery"><option value="delivery">{t.deliveryFile}</option><option value="preview">{t.previewFile}</option></select></label><label>{t.chooseFile}<input name="file" type="file" accept="image/*,video/*,audio/*,application/*" required /></label><button>{t.upload}</button></form><p className="help">{t.uploadHelp}</p></section></Dialog>}</>;
 }
 
-function AdminCategories({ categories, products, t, submit, load }: { categories: AdminCategory[]; products: AdminProduct[]; t: typeof adminCopy.en; submit: AdminSubmit; load: () => void }) {
+function ProductEditor({ product, assets, categories, t, close, load }: { product: AdminProduct; assets: AdminAsset[]; categories: AdminCategory[]; t: typeof adminCopy.en; close: () => void; load: () => void }) {
+  const [previewId, setPreviewId] = useState(product.previewAssetId ?? "");
+  const [preview, setPreview] = useState(assets.find((asset) => asset._id === product.previewAssetId));
+  const [categoryIds, setCategoryIds] = useState(product.categoryIds ?? []);
+  const [mediaIndex, setMediaIndex] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const currentMedia = assets.find((asset) => asset._id === product.mediaAssetIds[mediaIndex]);
+  const uploadPreview = async (file?: File) => {
+    if (!file) return;
+    setBusy(true); setError("");
+    try {
+      if (!file.type.startsWith("image/") || file.size > 50_000_000) throw new Error("invalid_file");
+      const sha256 = [...new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer()))].map((value) => value.toString(16).padStart(2, "0")).join("");
+      const result = await request<{ asset: AdminAsset; uploadUrl: string }>("/admin/assets/upload-url", { method: "POST", body: JSON.stringify({ fileName: file.name, mimeType: file.type, bytes: file.size, sha256, purpose: "preview" }) });
+      const response = await fetch(result.uploadUrl, { method: "PUT", headers: { "content-type": file.type }, body: file });
+      if (!response.ok) throw new Error("upload_failed");
+      await request(`/admin/assets/${result.asset._id}/complete`, { method: "POST" });
+      setPreviewId(result.asset._id); setPreview({ ...result.asset, url: URL.createObjectURL(file) }); load();
+    } catch { setError(t.uploadFailed); } finally { setBusy(false); }
+  };
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const data = new FormData(event.currentTarget); setBusy(true); setError("");
+    try {
+      await request(`/admin/products/${product._id}`, { method: "PATCH", body: JSON.stringify({ title: data.get("title"), description: data.get("description"), deliveryMessage: data.get("deliveryMessage"), amountMinor: euroToMinor(data.get("price")), categoryIds, previewMode: data.get("previewMode"), previewAssetId: data.get("previewMode") === "none" ? null : previewId || undefined }) });
+      load(); close();
+    } catch { setError(t.saveFailed); } finally { setBusy(false); }
+  };
+  return <Dialog title={t.editContent} close={close} closeLabel={t.close}><form className="product-editor" onSubmit={(event) => void save(event)}>
+    {error && <p role="alert" className="notice">{error}</p>}
+    <label>{t.productTitle}<input name="title" defaultValue={product.title} required /></label>
+    <label>{t.price}<input name="price" inputMode="decimal" defaultValue={(product.amountMinor / 100).toFixed(2)} required /></label>
+    <label>{t.description}<textarea name="description" defaultValue={product.description} /></label>
+    <label>{t.deliveryMessage}<textarea name="deliveryMessage" defaultValue={product.deliveryMessage} maxLength={1000} /></label>
+    <fieldset><legend>{t.storefrontPreview}</legend><div className="editor-preview">{preview ? <AdminAssetVisual asset={preview} unavailable={t.noPreviewMedia} /> : <div className="asset-visual-fallback">{t.noPreviewMedia}</div>}</div><label className="preview-upload">{t.changePreview}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={(event) => void uploadPreview(event.target.files?.[0])} /></label><label>{t.preview}<select name="previewMode" defaultValue={product.previewMode}><option value="none">{t.noPreviewOption}</option><option value="blurred">{t.blurredPreviewOption}</option><option value="visible">{t.visiblePreviewOption}</option></select></label></fieldset>
+    <fieldset><legend>{t.privateFiles}</legend><div className="editor-player">{currentMedia ? <AdminAssetVisual asset={currentMedia} unavailable={t.noPreviewMedia} /> : <div className="asset-visual-fallback">{t.noMedia}</div>}</div><div className="editor-media-nav"><button type="button" disabled={mediaIndex === 0} onClick={() => setMediaIndex(mediaIndex - 1)} aria-label={t.previousPage}>←</button><span>{product.mediaAssetIds.length ? mediaIndex + 1 : 0} / {product.mediaAssetIds.length}</span><button type="button" disabled={mediaIndex >= product.mediaAssetIds.length - 1} onClick={() => setMediaIndex(mediaIndex + 1)} aria-label={t.nextPage}>→</button></div>{currentMedia && <small>{currentMedia.fileName}</small>}</fieldset>
+    <fieldset><legend>{t.categories}</legend>{categories.filter((category) => category.status === "active" || categoryIds.includes(category._id)).map((category) => <label key={category._id}><input type="checkbox" checked={categoryIds.includes(category._id)} onChange={(event) => setCategoryIds(event.target.checked ? [...categoryIds, category._id] : categoryIds.filter((id) => id !== category._id))} /> {category.name}</label>)}</fieldset>
+    <button className="dialog-submit" disabled={busy}>{t.save}</button>
+  </form></Dialog>;
+}
+
+function AdminCategories({ categories, products, t, submit, load, editProduct }: { categories: AdminCategory[]; products: AdminProduct[]; t: typeof adminCopy.en; submit: AdminSubmit; load: () => void; editProduct: (product: AdminProduct) => void }) {
   const [editing, setEditing] = useState<AdminCategory | null>(null);
+  const [selected, setSelected] = useState<string>();
   const [error, setError] = useState(false);
   const archiveCategory = async (id: string) => { try { await request(`/admin/categories/${id}`, { method: "DELETE" }); setError(false); load(); } catch { setError(true); } };
-  return <section className="category-manager"><section className="admin-intro"><h2>{t.categories}</h2><p>{t.categoryHelp}</p></section><div className="setup-grid"><section><h3>{editing ? t.edit : t.createCategory}</h3><form key={editing?._id ?? "new"} onSubmit={(event) => void submit(event, editing ? `/admin/categories/${editing._id}` : "/admin/categories", (data) => ({ name: data.get("name"), slug: data.get("slug") }), t.saved, editing ? "PATCH" : "POST").then((saved) => { if (saved) setEditing(null); })}><label>{t.categoryName}<input name="name" defaultValue={editing?.name} required /></label><label>{t.categorySlug}<input name="slug" defaultValue={editing?.slug} pattern="[a-z0-9-]+" required /></label><button>{editing ? t.save : t.createCategory}</button>{editing && <button type="button" className="plain-button" onClick={() => setEditing(null)}>{t.cancel}</button>}</form></section><section><h3>{t.categories}</h3>{error && <p role="alert">{t.requestFailed}</p>}{categories.length ? categories.map((category) => <details key={category._id}><summary>{category.name} ({category.slug}) {category.status !== "active" && `— ${t.archived}`}</summary><div><button type="button" onClick={() => setEditing(category)}>{t.edit}</button>{category.status === "active" && <button type="button" className="plain-button" onClick={() => { if (window.confirm(t.archiveConfirm)) void archiveCategory(category._id); }}>{t.archive}</button>}</div><h4>{t.productsInCategory}</h4><ul>{products.filter((product) => product.categoryIds?.includes(category._id)).map((product) => <li key={product._id}>{product.title}</li>)}</ul>{!products.some((product) => product.categoryIds?.includes(category._id)) && <p>{t.noCategoryProducts}</p>}</details>) : <p className="empty">{t.categoryEmpty}</p>}</section></div></section>;
+  const category = categories.find((item) => item._id === selected);
+  return <section className="category-manager"><section className="admin-intro"><h2>{category?.name ?? t.categories}</h2><p>{t.categoryHelp}</p></section>{error && <p role="alert">{t.requestFailed}</p>}{category ? <><button type="button" className="admin-back-button" onClick={() => setSelected(undefined)}>← {t.categories}</button><button type="button" onClick={() => setEditing(category)}>{t.edit}</button>{category.status === "active" && <button type="button" className="plain-button" onClick={() => { if (window.confirm(t.archiveConfirm)) void archiveCategory(category._id); }}>{t.archive}</button>}<div className="category-card-grid">{products.filter((product) => product.categoryIds?.includes(category._id)).map((product) => <button type="button" className="category-tile" key={product._id} onClick={() => editProduct(product)}><strong>{product.title}</strong><span>{t.price}: {money(product.amountMinor, product.currency)}</span><span>{t.totalRevenue}: {money(product.grossMinor ?? 0, product.currency)}</span></button>)}</div></> : <><div className="category-card-grid">{categories.map((item) => <button type="button" key={item._id} className="category-tile" onClick={() => setSelected(item._id)}><strong>{item.name}</strong><span>{products.filter((product) => product.categoryIds?.includes(item._id)).length} {t.productsLabel}</span>{item.status !== "active" && <small>{t.archived}</small>}</button>)}<button type="button" className="category-tile" onClick={() => setEditing({ _id: "", name: "", slug: "", status: "active" })}>+ {t.createCategory}</button></div></>}{editing && <Dialog title={editing._id ? t.edit : t.createCategory} close={() => setEditing(null)} closeLabel={t.close}><form key={editing._id} onSubmit={(event) => void submit(event, editing._id ? `/admin/categories/${editing._id}` : "/admin/categories", (data) => ({ name: data.get("name"), slug: data.get("slug") }), t.saved, editing._id ? "PATCH" : "POST").then((saved) => { if (saved) setEditing(null); })}><label>{t.categoryName}<input name="name" defaultValue={editing.name} required /></label><label>{t.categorySlug}<input name="slug" defaultValue={editing.slug} pattern="[a-z0-9-]+" required /></label><button>{t.save}</button></form></Dialog>}</section>;
 }
 
 function AdminCustomers({ t }: { t: typeof adminCopy.en }) {

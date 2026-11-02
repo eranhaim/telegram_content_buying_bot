@@ -301,12 +301,16 @@ admin.get("/assets", asyncRoute(async (_req, res) => {
 
 admin.get("/products", asyncRoute(async (_req, res) => {
   const products = await Product.find().sort({ createdAt: -1 }).lean();
-  const previews = await MediaAsset.find({ _id: { $in: products.flatMap((product: any) => product.previewAssetId ? [product.previewAssetId] : []) }, purpose: "preview", status: "ready" }).lean();
+  const [previews, earnings] = await Promise.all([
+    MediaAsset.find({ _id: { $in: products.flatMap((product: any) => product.previewAssetId ? [product.previewAssetId] : []) }, purpose: "preview", status: "ready" }).lean(),
+    Order.aggregate([{ $match: { paymentStatus: "paid" } }, { $unwind: "$lines" }, { $group: { _id: "$lines.productId", grossMinor: { $sum: "$lines.amountMinor" } } }]),
+  ]);
   const byId = new Map(previews.map((asset: any) => [String(asset._id), asset]));
+  const revenueById = new Map(earnings.map((entry: any) => [String(entry._id), entry.grossMinor]));
   res.json({ items: await Promise.all(products.map(async (product: any) => {
     const asset: any = byId.get(String(product.previewAssetId));
     const url = asset ? await signedDownloadUrl(asset.storageKey).catch(() => undefined) : undefined;
-    return { ...product, preview: url ? { mimeType: asset.mimeType, url } : null };
+    return { ...product, grossMinor: revenueById.get(String(product._id)) ?? 0, preview: url ? { mimeType: asset.mimeType, url } : null };
   })) });
 }));
 admin.post("/products", asyncRoute(async (req, res) => {
