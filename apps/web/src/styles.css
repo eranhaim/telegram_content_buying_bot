@@ -796,7 +796,16 @@ fieldset input { width: auto; margin-inline-end: 8px; }
   box-shadow: 0 -16px 40px rgba(20, 17, 15, 0.55);
 }
 .cart-summary h2 { color: var(--bone); }
-.cart-summary button, .cart-summary .plain-button { width: 100%; margin-inline-end: 0; }
+.cart-summary button, .cart-summary .plain-button {
+  width: 100%;
+  min-height: 54px;
+  margin-inline-end: 0;
+  font-family: inherit;
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.cart-summary .plain-button { color: var(--bone); border-color: rgba(255, 248, 244, .24); }
 .ltr-value, .order-id { display: inline-block; unicode-bidi: isolate; }
 .order-id { color: var(--ash); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
