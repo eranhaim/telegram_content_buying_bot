@@ -33,6 +33,8 @@ type AdminCopy = {
   customers: string; customerOrders: string; customerSearch: string; fromDate: string; toDate: string;
   productsInCategory: string; noCategoryProducts: string; archived: string; archiveConfirm: string; cancel: string;
   changePreview: string; productsLabel: string; categorySlugHelp: string;
+  deleteAction: string; deleteTitle: string; deleteWarning: string; typeConfirm: string; deleteFailed: string; creatorHasProducts: string;
+  deleteCategoryImpact: string; deleteProductImpact: string; deleteCreatorImpact: string;
 };
 
 export const adminCopy: Record<AdminLanguage, AdminCopy> = {
@@ -52,6 +54,8 @@ export const adminCopy: Record<AdminLanguage, AdminCopy> = {
     revenueTitle: "Revenue", totalRevenue: "Total revenue", todayRevenue: "Today", monthRevenue: "This month", paidOrders: "Paid orders", pendingOrders: "Pending", expiredOrders: "Expired", creatorRevenue: "Revenue by creator", purchases: "Purchases", noSalesYet: "No sales yet.",
     customers: "Customers", customerOrders: "Customer orders", customerSearch: "Search customer name or username", fromDate: "From date (UTC)", toDate: "To date (UTC)", productsInCategory: "Products in this category", noCategoryProducts: "No products in this category.", archived: "Archived", archiveConfirm: "Archive this category? It will no longer appear to customers.", cancel: "Cancel",
     changePreview: "Upload a new preview photo", productsLabel: "products", categorySlugHelp: "A unique internal identifier, not shown to customers. Use lowercase English letters, numbers and hyphens—for example, videos.",
+    deleteAction: "Delete", deleteTitle: "Permanently delete", deleteWarning: "This permanently removes:", typeConfirm: "Type confirm and press Enter to delete.", deleteFailed: "Could not delete. Please try again.", creatorHasProducts: "Delete this creator’s products first. Existing orders will be retained.",
+    deleteCategoryImpact: "The category will be removed from products; products and past orders will remain.", deleteProductImpact: "This product will also be removed from active carts. Past orders and delivery files remain.", deleteCreatorImpact: "Delete the creator’s products first. Past orders remain.",
   },
   he: {
     language: "שפה", english: "English", hebrew: "עברית", signIn: "כניסת מנהל", password: "סיסמה",
@@ -69,6 +73,8 @@ export const adminCopy: Record<AdminLanguage, AdminCopy> = {
     revenueTitle: "הכנסות", totalRevenue: "סה״כ הכנסות", todayRevenue: "היום", monthRevenue: "החודש", paidOrders: "הזמנות ששולמו", pendingOrders: "ממתינות", expiredOrders: "פגו תוקף", creatorRevenue: "הכנסות לפי יוצר/ת", purchases: "רכישות", noSalesYet: "עדיין אין מכירות.",
     customers: "לקוחות", customerOrders: "הזמנות הלקוח/ה", customerSearch: "חיפוש לפי שם או שם משתמש", fromDate: "מתאריך (UTC)", toDate: "עד תאריך (UTC)", productsInCategory: "מוצרים בקטגוריה", noCategoryProducts: "אין מוצרים בקטגוריה זו.", archived: "בארכיון", archiveConfirm: "להעביר את הקטגוריה לארכיון? היא לא תוצג יותר ללקוחות.", cancel: "ביטול",
     changePreview: "העלאת תמונת תצוגה חדשה", productsLabel: "מוצרים", categorySlugHelp: "מזהה פנימי ייחודי שאינו מוצג ללקוחות. יש להשתמש באותיות אנגליות קטנות, מספרים ומקפים בלבד, למשל: videos.",
+    deleteAction: "מחיקה", deleteTitle: "מחיקה לצמיתות", deleteWarning: "הפעולה תמחק לצמיתות את:", typeConfirm: "יש להקליד confirm וללחוץ Enter כדי למחוק.", deleteFailed: "לא ניתן למחוק. נסו שוב.", creatorHasProducts: "יש למחוק קודם את המוצרים של היוצר/ת. ההזמנות הקיימות יישמרו.",
+    deleteCategoryImpact: "הקטגוריה תוסר מהמוצרים; המוצרים וההזמנות הקודמות יישמרו.", deleteProductImpact: "המוצר יוסר גם מעגלות פעילות. הזמנות קודמות וקובצי מסירה יישמרו.", deleteCreatorImpact: "יש למחוק קודם את מוצרי היוצר/ת. הזמנות קודמות יישמרו.",
   },
 };
 

@@ -242,16 +242,18 @@ admin.post("/creators", asyncRoute(async (req, res) => {
   await audit(req, "creator.create", "creator", String(creator._id)); res.status(201).json(creator);
 }));
 admin.patch("/creators/:id", asyncRoute(async (req, res) => {
-  const body = z.object({ displayName: z.string().min(1).max(120).optional(), slug: z.string().regex(/^[a-z0-9-]+$/).optional(), bio: z.string().max(4000).optional(), status: z.enum(["draft", "published", "archived"]).optional() }).parse(req.body);
+  const body = z.object({ displayName: z.string().min(1).max(120).optional(), slug: z.string().regex(/^[a-z0-9-]+$/).optional(), bio: z.string().max(4000).optional(), status: z.enum(["draft", "published"]).optional() }).parse(req.body);
   const creator = await Creator.findById(req.params.id); if (!creator) return res.status(404).json({ error: "creator_not_found" });
   if (body.status === "published" && (!creator.rightsAttestation?.creatorIsAdult || !creator.rightsAttestation?.distributionAuthorized)) return res.status(409).json({ error: "creator_attestation_required" });
   Object.assign(creator, body); await creator.save(); await audit(req, "creator.update", "creator", String(creator._id), body); res.json(creator);
 }));
 admin.delete("/creators/:id", asyncRoute(async (req, res) => {
-  const creator = await Creator.findByIdAndUpdate(req.params.id, { $set: { status: "archived" } }, { new: true });
+  z.object({ confirmation: z.literal("confirm") }).strict().parse(req.body);
+  const creator = await Creator.findById(req.params.id);
   if (!creator) return res.status(404).json({ error: "creator_not_found" });
-  await Product.updateMany({ creatorId: creator._id }, { $set: { status: "archived" } });
-  await audit(req, "creator.archive", "creator", String(creator._id)); res.status(204).end();
+  if (await Product.exists({ creatorId: creator._id })) return res.status(409).json({ error: "creator_has_products" });
+  await Creator.deleteOne({ _id: creator._id });
+  await audit(req, "creator.delete", "creator", String(creator._id)); res.status(204).end();
 }));
 
 admin.get("/categories", asyncRoute(async (_req, res) => res.json({ items: await Category.find().sort({ name: 1 }) })));
@@ -260,15 +262,18 @@ admin.post("/categories", asyncRoute(async (req, res) => {
   const category = await Category.create(body); await audit(req, "category.create", "category", String(category._id), body); res.status(201).json(category);
 }));
 admin.patch("/categories/:id", asyncRoute(async (req, res) => {
-  const body = z.object({ name: z.string().min(1).max(80).optional(), slug: z.string().regex(/^[a-z0-9-]+$/).optional(), status: z.enum(["active", "archived"]).optional() }).parse(req.body);
+  const body = z.object({ name: z.string().min(1).max(80).optional(), slug: z.string().regex(/^[a-z0-9-]+$/).optional(), status: z.literal("active").optional() }).parse(req.body);
   const category = await Category.findByIdAndUpdate(req.params.id, { $set: body }, { new: true });
   if (!category) return res.status(404).json({ error: "category_not_found" });
   await audit(req, "category.update", "category", String(category._id), body); res.json(category);
 }));
 admin.delete("/categories/:id", asyncRoute(async (req, res) => {
-  const category = await Category.findByIdAndUpdate(req.params.id, { $set: { status: "archived" } }, { new: true });
+  z.object({ confirmation: z.literal("confirm") }).strict().parse(req.body);
+  const category = await Category.findById(req.params.id);
   if (!category) return res.status(404).json({ error: "category_not_found" });
-  await audit(req, "category.archive", "category", String(category._id)); res.status(204).end();
+  await Product.updateMany({ categoryIds: category._id }, { $pull: { categoryIds: category._id } });
+  await Category.deleteOne({ _id: category._id });
+  await audit(req, "category.delete", "category", String(category._id)); res.status(204).end();
 }));
 
 admin.post("/assets/upload-url", asyncRoute(async (req, res) => {
@@ -324,7 +329,7 @@ admin.post("/products", asyncRoute(async (req, res) => {
   const product = await Product.create({ ...body, slug: body.slug ?? await nextProductSlug(body.title, body.creatorId) }); await audit(req, "product.create", "product", String(product._id)); res.status(201).json(product);
 }));
 admin.patch("/products/:id", asyncRoute(async (req, res) => {
-  const body = z.object({ creatorId: objectId.optional(), title: z.string().min(1).max(200).optional(), slug: z.string().regex(/^[a-z0-9-]+$/).optional(), description: z.string().max(4000).optional(), deliveryMessage: z.string().max(1000).optional(), categoryIds: objectIds.optional(), previewAssetId: objectId.nullable().optional(), previewMode: z.enum(["none", "blurred", "visible"]).optional(), amountMinor: euroMinor.optional(), status: z.enum(["draft", "review", "published", "archived"]).optional(), mediaAssetIds: nonEmptyObjectIds.optional(), currency: z.literal("EUR").optional() }).parse(req.body);
+  const body = z.object({ creatorId: objectId.optional(), title: z.string().min(1).max(200).optional(), slug: z.string().regex(/^[a-z0-9-]+$/).optional(), description: z.string().max(4000).optional(), deliveryMessage: z.string().max(1000).optional(), categoryIds: objectIds.optional(), previewAssetId: objectId.nullable().optional(), previewMode: z.enum(["none", "blurred", "visible"]).optional(), amountMinor: euroMinor.optional(), status: z.enum(["draft", "review", "published"]).optional(), mediaAssetIds: nonEmptyObjectIds.optional(), currency: z.literal("EUR").optional() }).parse(req.body);
   const product = await Product.findById(req.params.id); if (!product) return res.status(404).json({ error: "product_not_found" });
   const creatorId = body.creatorId ?? String(product.creatorId);
   const mediaAssetIds = body.mediaAssetIds ?? product.mediaAssetIds.map(String);
@@ -347,9 +352,12 @@ admin.patch("/products/:id", asyncRoute(async (req, res) => {
   Object.assign(product, body, { previewAssetId }); await product.save(); await audit(req, "product.update", "product", String(product._id), body); res.json(product);
 }));
 admin.delete("/products/:id", asyncRoute(async (req, res) => {
-  const product = await Product.findByIdAndUpdate(req.params.id, { $set: { status: "archived" } }, { new: true });
+  z.object({ confirmation: z.literal("confirm") }).strict().parse(req.body);
+  const product = await Product.findById(req.params.id);
   if (!product) return res.status(404).json({ error: "product_not_found" });
-  await audit(req, "product.archive", "product", String(product._id)); res.status(204).end();
+  await Cart.updateMany({ status: "active", "items.productId": product._id }, { $pull: { items: { productId: product._id } } });
+  await Product.deleteOne({ _id: product._id });
+  await audit(req, "product.delete", "product", String(product._id)); res.status(204).end();
 }));
 
 admin.get("/analytics/products", asyncRoute(async (_req, res) => {

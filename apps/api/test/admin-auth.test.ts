@@ -70,3 +70,16 @@ test("admin login accepts only the shared password", async () => {
     assert.equal(payload.exp! - payload.iat!, 4 * 60 * 60);
   });
 });
+
+test("catalog deletion requires the exact confirmation before accessing records", async () => {
+  await withServer(async (baseUrl) => {
+    const login = await fetch(`${baseUrl}/api/auth/admin`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ password: "test-shared-password" }) });
+    const { token } = await login.json() as { token: string };
+    for (const kind of ["creators", "products", "categories"]) {
+      for (const confirmation of [undefined, "Confirm", "wrong"]) {
+        const response = await fetch(`${baseUrl}/api/admin/${kind}/000000000000000000000001`, { method: "DELETE", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ confirmation }) });
+        assert.equal(response.status, 400);
+      }
+    }
+  });
+});
