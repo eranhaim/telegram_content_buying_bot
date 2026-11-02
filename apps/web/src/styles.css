@@ -342,7 +342,14 @@ label input, label select, label textarea { font-weight: 400; }
   color: var(--ash);
 }
 
-.reel-card { padding: 0; overflow: hidden; }
+.reel-card { position: relative; padding: 0; overflow: hidden; }
+.cart-added-glow { position: absolute; inset: 0; z-index: 4; border-radius: inherit; pointer-events: none; animation: cart-added-rgb 1.1s ease-out forwards; }
+@keyframes cart-added-rgb {
+  0% { box-shadow: inset 0 0 0 3px #ff498e, inset 0 0 25px #ff498e; opacity: 1; }
+  35% { box-shadow: inset 0 0 0 3px #51bfff, inset 0 0 25px #51bfff; opacity: 1; }
+  70% { box-shadow: inset 0 0 0 3px #9bff84, inset 0 0 25px #9bff84; opacity: .9; }
+  100% { box-shadow: inset 0 0 0 2px #ff70da, inset 0 0 18px #ff70da; opacity: 0; }
+}
 .reel-preview {
   position: relative;
   aspect-ratio: 4 / 5;
@@ -1031,4 +1038,5 @@ fieldset input { width: auto; margin-inline-end: 8px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none; }
+  .cart-added-glow { animation: none; }
 }

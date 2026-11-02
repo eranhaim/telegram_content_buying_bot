@@ -197,9 +197,10 @@ function LazyPreviewVideo({ url, unavailable }: { url: string; unavailable: stri
   return <video ref={videoRef} src={inView ? url : undefined} muted loop playsInline preload="none" aria-hidden="true" />;
 }
 
-function ContentGrid({ items, add, empty, renderCopy, addCard, className = "", t, locale }: { items: GridContentItem[]; add?: (id: string) => void; empty: ReactNode; renderCopy?: (item: GridContentItem) => ReactNode; addCard?: ReactNode; className?: string; t?: CustomerText; locale?: CustomerLocale }) {
+function ContentGrid({ items, add, empty, renderCopy, addCard, className = "", t, locale, added }: { items: GridContentItem[]; add?: (id: string) => void; empty: ReactNode; renderCopy?: (item: GridContentItem) => ReactNode; addCard?: ReactNode; className?: string; t?: CustomerText; locale?: CustomerLocale; added?: { id: string; sequence: number } }) {
   return <section className={`reel-grid ${className}`}>{items.map((item) => <article className="reel-card" key={item._id}>
-    <div className={`reel-preview preview-${item.previewMode ?? "blurred"}`}>{item.preview?.mimeType.startsWith("video/") ? <LazyPreviewVideo url={item.preview.url} unavailable={t?.previewUnavailable ?? "Preview unavailable"} /> : item.preview ? <img src={item.preview.url} alt="" /> : <div className="preview-unavailable">{t?.previewUnavailable ?? "Preview unavailable"}</div>}{item.previewMode === "blurred" && <span className="blur-label">{t?.blurredPreview ?? "BLURRED PREVIEW"}</span>}</div>
+    {added?.id === item._id && <span key={added.sequence} className="cart-added-glow" aria-hidden="true" />}
+    <div className={`reel-preview preview-${item.previewMode ?? "blurred"}`}>{item.preview?.mimeType.startsWith("video/") ? <LazyPreviewVideo url={item.preview.url} unavailable={t?.previewUnavailable ?? "Preview unavailable"} /> : item.preview ? <img src={item.preview.url} alt="" /> : <div className="preview-unavailable">{t?.previewUnavailable ?? "Preview unavailable"}</div>}{renderCopy && item.previewMode === "blurred" && <span className="blur-label">{t?.blurredPreview ?? "BLURRED PREVIEW"}</span>}</div>
     <div className="reel-copy">{renderCopy ? renderCopy(item) : <><h2>{item.title}</h2><p>{item.description}</p><strong className="ltr-value" dir="ltr">{money(item.amountMinor!, item.currency!, locale)}</strong><button onClick={() => add?.(item._id)}>{t?.addToCart ?? "Add to cart"}</button></>}</div>
   </article>)}{addCard}{!items.length && empty}</section>;
 }
@@ -209,9 +210,10 @@ function CreatorPage({ t, locale, onCartChange }: { t: CustomerText; locale: Cus
   const [items, setItems] = useState<Product[]>([]);
   const [creator, setCreator] = useState<Creator | null>(null);
   const [notice, setNotice] = useState("");
+  const [added, setAdded] = useState<{ id: string; sequence: number }>();
   useEffect(() => { void request<{ creator: Creator; items: Product[] }>(`/catalog/creators/${slug}/products`).then((result) => { setCreator(result.creator); setItems(result.items); }).catch(() => setNotice(t.creatorUnavailable)); }, [slug, t.creatorUnavailable]);
   const add = async (productId: string) => {
-    try { await request("/cart/items", { method: "POST", body: JSON.stringify({ productId }) }); setNotice(t.addedToCart); onCartChange(); }
+    try { await request("/cart/items", { method: "POST", body: JSON.stringify({ productId }) }); setAdded((previous) => ({ id: productId, sequence: (previous?.sequence ?? 0) + 1 })); setNotice(t.addedToCart); onCartChange(); }
     catch { setNotice(t.cartUpdateFailed); }
   };
   return <main className="customer-main">
@@ -229,7 +231,7 @@ function CreatorPage({ t, locale, onCartChange }: { t: CustomerText; locale: Cus
       </div>
     </section>
     {notice && <p role="status" className="notice">{notice}</p>}
-    <ContentGrid items={items} add={add} t={t} locale={locale} empty={<p className="empty">{t.noContent}</p>} />
+    <ContentGrid items={items} add={add} added={added} t={t} locale={locale} empty={<p className="empty">{t.noContent}</p>} />
   </main>;
 }
 
