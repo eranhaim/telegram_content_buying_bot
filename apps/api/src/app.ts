@@ -33,7 +33,7 @@ const asyncRoute = (fn: (req: Request, res: Response) => Promise<unknown>) =>
   (req: Request, res: Response) => void fn(req, res).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : "server_error";
     const status = error instanceof z.ZodError ? 400
-      : message === "invalid_browser_session" ? 400
+      : ["invalid_browser_session", "invalid_date_range"].includes(message) ? 400
       : ["telegram_auth_unavailable", "invalid_telegram_init_data", "expired_telegram_init_data", "missing_telegram_user"].includes(message) ? 401
       : ["cart_empty", "unavailable_product", "mixed_currency_cart", "age_confirmation_required", "telegram_delivery_required"].includes(message) ? 409
         : ["mantapay_not_configured", "object_storage_not_configured"].includes(message) ? 503 : 500;
@@ -299,9 +299,18 @@ admin.get("/assets", asyncRoute(async (_req, res) => {
   });
 }));
 
-admin.get("/products", asyncRoute(async (_req, res) => res.json({ items: await Product.find().sort({ createdAt: -1 }) })));
+admin.get("/products", asyncRoute(async (_req, res) => {
+  const products = await Product.find().sort({ createdAt: -1 }).lean();
+  const previews = await MediaAsset.find({ _id: { $in: products.flatMap((product: any) => product.previewAssetId ? [product.previewAssetId] : []) }, purpose: "preview", status: "ready" }).lean();
+  const byId = new Map(previews.map((asset: any) => [String(asset._id), asset]));
+  res.json({ items: await Promise.all(products.map(async (product: any) => {
+    const asset: any = byId.get(String(product.previewAssetId));
+    const url = asset ? await signedDownloadUrl(asset.storageKey).catch(() => undefined) : undefined;
+    return { ...product, preview: url ? { mimeType: asset.mimeType, url } : null };
+  })) });
+}));
 admin.post("/products", asyncRoute(async (req, res) => {
-  const body = z.object({ creatorId: objectId, title: z.string().min(1).max(200), slug: z.string().regex(/^[a-z0-9-]+$/).optional(), description: z.string().max(4000).default(""), deliveryMessage: z.string().max(1000).default(""), categoryIds: objectIds, previewAssetId: objectId.optional(), previewMode: z.enum(["none", "blurred", "visible"]).default("blurred"), mediaAssetIds: nonEmptyObjectIds, amountMinor: euroMinor, currency: z.literal("EUR") }).parse(req.body);
+  const body = z.object({ creatorId: objectId, title: z.string().min(1).max(200), slug: z.string().regex(/^[a-z0-9-]+$/).optional(), description: z.string().max(4000).default(""), deliveryMessage: z.string().max(1000).default(""), categoryIds: objectIds, previewAssetId: objectId.nullish().transform((value) => value ?? undefined), previewMode: z.enum(["none", "blurred", "visible"]).default("blurred"), mediaAssetIds: nonEmptyObjectIds, amountMinor: euroMinor, currency: z.literal("EUR") }).parse(req.body);
   const creator = await Creator.findById(body.creatorId);
   if (!creator) return res.status(404).json({ error: "creator_not_found" });
   if (!previewIsConfigured(body.previewMode, body.previewAssetId) || (body.previewMode !== "none" && !await MediaAsset.exists({ _id: body.previewAssetId, purpose: "preview", status: "ready" }))) return res.status(409).json({ error: "preview_not_ready" });
@@ -356,19 +365,47 @@ admin.get("/analytics/products", asyncRoute(async (_req, res) => {
 }));
 
 // --- Admin: Orders list ---
+function adminDateRange(query: Request["query"]) {
+  const parse = (value: unknown, end: boolean) => {
+    if (!value) return undefined;
+    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error("invalid_date_range");
+    const date = new Date(`${value}T${end ? "23:59:59.999" : "00:00:00.000"}Z`);
+    if (Number.isNaN(date.valueOf()) || date.toISOString().slice(0, 10) !== value) throw new Error("invalid_date_range");
+    return date;
+  };
+  const from = parse(query.from, false), to = parse(query.to, true);
+  if (from && to && from > to) throw new Error("invalid_date_range");
+  return from || to ? { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) } : undefined;
+}
+
 admin.get("/orders", asyncRoute(async (req, res) => {
-  const statusFilter = typeof req.query.status === "string" ? req.query.status : undefined;
-  const filter: Record<string, string> = {};
-  if (statusFilter) filter.paymentStatus = statusFilter;
-  const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(200).lean();
+  const q = z.object({ status: z.enum(["pending", "paid", "expired", "failed", "refunded", "charged_back"]).optional(), customer: z.string().max(100).optional(), customerId: objectId.optional(), page: z.coerce.number().int().min(1).max(100000).default(1) }).parse(req.query);
+  const range = adminDateRange(req.query);
+  const filter: Record<string, unknown> = {};
+  if (q.status) filter.paymentStatus = q.status;
+  if (range) filter.createdAt = range;
+  if (q.customerId) filter.telegramUserId = q.customerId;
+  if (q.customer?.trim()) {
+    const words = q.customer.trim().split(/\s+/).map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const users = await TelegramUser.find({ $and: words.map((word) => ({ $or: ["firstName", "lastName", "username", "telegramId"].map((field) => ({ [field]: { $regex: word, $options: "i" } })) })) }).select("_id").lean();
+    filter.telegramUserId = { $in: users.map((user) => user._id) };
+  }
+  const limit = 20;
+  const [orders, total] = await Promise.all([Order.find(filter).sort({ createdAt: -1, _id: -1 }).skip((q.page - 1) * limit).limit(limit).lean(), Order.countDocuments(filter)]);
   const userIds = [...new Set(orders.map((o: any) => String(o.telegramUserId)))];
   const users = await TelegramUser.find({ _id: { $in: userIds } }).lean();
   const userMap = new Map(users.map((u: any) => [String(u._id), u]));
-  res.json({ items: orders.map((o: any) => ({ _id: o._id, publicId: o.publicId, totalMinor: o.totalMinor, currency: o.currency, paymentStatus: o.paymentStatus, fulfillmentStatus: o.fulfillmentStatus, createdAt: o.createdAt, paidAt: o.paidAt, lines: (o.lines ?? []).map((l: any) => ({ productTitle: l.productTitle, creatorName: l.creatorName, amountMinor: l.amountMinor })), telegramUser: (() => { const u = userMap.get(String(o.telegramUserId)); if (!u) return null; return isBrowserCustomer(u) ? { firstName: BROWSER_CUSTOMER_LABEL } : { username: u.username, firstName: u.firstName }; })() })) });
+  res.json({ page: q.page, total, pages: Math.max(1, Math.ceil(total / limit)), items: orders.map((o: any) => ({ _id: o._id, publicId: o.publicId, totalMinor: o.totalMinor, currency: o.currency, paymentStatus: o.paymentStatus, fulfillmentStatus: o.fulfillmentStatus, createdAt: o.createdAt, paidAt: o.paidAt, lines: (o.lines ?? []).map((l: any) => ({ productTitle: l.productTitle, creatorName: l.creatorName, amountMinor: l.amountMinor })), telegramUser: (() => { const u = userMap.get(String(o.telegramUserId)); if (!u) return null; return isBrowserCustomer(u) ? { firstName: BROWSER_CUSTOMER_LABEL } : { username: u.username, firstName: u.firstName, lastName: u.lastName }; })() })) });
+}));
+
+admin.get("/customers", asyncRoute(async (_req, res) => {
+  const users = await TelegramUser.find({ telegramId: { $not: /^browser:/ } }).select("telegramId username firstName lastName").sort({ createdAt: -1 }).lean();
+  res.json({ items: users.filter((u: any) => !isBrowserCustomer(u)) });
 }));
 
 // --- Admin: Revenue summary ---
-admin.get("/revenue", asyncRoute(async (_req, res) => {
+admin.get("/revenue", asyncRoute(async (req, res) => {
+  const range = adminDateRange(req.query);
   const now = new Date();
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -376,7 +413,7 @@ admin.get("/revenue", asyncRoute(async (_req, res) => {
     Order.aggregate([{ $match: { paymentStatus: "paid" } }, { $group: { _id: null, grossMinor: { $sum: "$totalMinor" }, count: { $sum: 1 } } }]),
     Order.aggregate([{ $match: { paymentStatus: "paid", paidAt: { $gte: startOfDay } } }, { $group: { _id: null, grossMinor: { $sum: "$totalMinor" }, count: { $sum: 1 } } }]),
     Order.aggregate([{ $match: { paymentStatus: "paid", paidAt: { $gte: startOfMonth } } }, { $group: { _id: null, grossMinor: { $sum: "$totalMinor" }, count: { $sum: 1 } } }]),
-    Order.aggregate([{ $match: { paymentStatus: "paid" } }, { $unwind: "$lines" }, { $group: { _id: "$lines.creatorId", name: { $first: "$lines.creatorName" }, purchases: { $sum: 1 }, grossMinor: { $sum: "$lines.amountMinor" } } }, { $sort: { grossMinor: -1 } }]),
+    Order.aggregate([{ $match: { paymentStatus: "paid", ...(range ? { paidAt: range } : {}) } }, { $unwind: "$lines" }, { $group: { _id: "$lines.creatorId", name: { $first: "$lines.creatorName" }, purchases: { $sum: 1 }, grossMinor: { $sum: "$lines.amountMinor" } } }, { $sort: { grossMinor: -1 } }]),
     Order.aggregate([{ $group: { _id: "$paymentStatus", count: { $sum: 1 } } }]),
   ]);
   res.json({ total: total[0] ?? { grossMinor: 0, count: 0 }, today: today[0] ?? { grossMinor: 0, count: 0 }, month: month[0] ?? { grossMinor: 0, count: 0 }, creators, statusCounts: Object.fromEntries(statusCounts.map((s: any) => [s._id, s.count])) });

@@ -277,22 +277,37 @@ function Dialog({ title, close, closeLabel, children }: { title: string; close: 
 
 // --- Admin: Orders tab ---
 
-function AdminOrders({ t }: { t: typeof adminCopy.en }) {
+function AdminOrders({ t, customerId }: { t: typeof adminCopy.en; customerId?: string }) {
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [filter, setFilter] = useState("");
+  const [search, setSearch] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [error, setError] = useState(false);
   useEffect(() => {
-    const qs = filter ? `?status=${filter}` : "";
-    void request<{ items: AdminOrder[] }>(`/admin/orders${qs}`).then((r) => setOrders(r.items)).catch(() => {});
-  }, [filter]);
+    let active = true;
+    const qs = new URLSearchParams({ page: String(page) });
+    if (filter) qs.set("status", filter);
+    if (search.trim()) qs.set("customer", search.trim());
+    if (from) qs.set("from", from);
+    if (to) qs.set("to", to);
+    if (customerId) qs.set("customerId", customerId);
+    setError(false);
+    void request<{ items: AdminOrder[]; pages: number }>(`/admin/orders?${qs}`).then((r) => { if (active) { setOrders(r.items); setPages(r.pages); } }).catch(() => { if (active) setError(true); });
+    return () => { active = false; };
+  }, [filter, search, from, to, page, customerId]);
   const statuses = ["pending", "paid", "expired", "failed", "refunded", "charged_back"];
   const formatDate = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
   return <>
-    <section className="admin-intro"><h2>{t.ordersTitle}</h2></section>
+    {!customerId && <section className="admin-intro"><h2>{t.ordersTitle}</h2></section>}
     <div className="order-filters">
-      <button className={`filter-btn${filter === "" ? " active" : ""}`} onClick={() => setFilter("")}>{t.filterAll}</button>
-      {statuses.map((s) => <button key={s} className={`filter-btn${filter === s ? " active" : ""}`} onClick={() => setFilter(s)}>{s}</button>)}
+      <button className={`filter-btn${filter === "" ? " active" : ""}`} onClick={() => { setFilter(""); setPage(1); }}>{t.filterAll}</button>
+      {statuses.map((s) => <button key={s} className={`filter-btn${filter === s ? " active" : ""}`} onClick={() => { setFilter(s); setPage(1); }}>{s}</button>)}
     </div>
-    {orders.length ? <div className="admin-table-wrap"><table className="admin-table">
+    <div className="admin-filter-fields">{!customerId && <label>{t.customerSearch}<input type="search" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} /></label>}<label>{t.fromDate}<input type="date" value={from} max={to || undefined} onChange={(e) => { setFrom(e.target.value); setPage(1); }} /></label><label>{t.toDate}<input type="date" value={to} min={from || undefined} onChange={(e) => { setTo(e.target.value); setPage(1); }} /></label></div>
+    {error ? <p role="alert">{t.requestFailed}</p> : orders.length ? <div className="admin-table-wrap"><table className="admin-table">
       <thead><tr><th>{t.date}</th><th>{t.customer}</th><th>{t.items}</th><th>{t.total}</th><th>{t.payment}</th><th>{t.fulfillment}</th><th>{t.orderId}</th></tr></thead>
       <tbody>{orders.map((o) => {
         const user = o.telegramUser?.username ? `@${o.telegramUser.username}` : (o.telegramUser?.firstName ?? "—");
@@ -308,6 +323,7 @@ function AdminOrders({ t }: { t: typeof adminCopy.en }) {
         </tr>;
       })}</tbody>
     </table></div> : <p className="empty">{t.noOrders}</p>}
+    <div className="asset-pagination"><button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)}>{t.previousPage}</button><span>{page} / {pages}</span><button type="button" disabled={page >= pages} onClick={() => setPage(page + 1)}>{t.nextPage}</button></div>
   </>;
 }
 
@@ -315,7 +331,10 @@ function AdminOrders({ t }: { t: typeof adminCopy.en }) {
 
 function AdminRevenue({ t }: { t: typeof adminCopy.en }) {
   const [data, setData] = useState<RevenueData | null>(null);
-  useEffect(() => { void request<RevenueData>("/admin/revenue").then(setData).catch(() => {}); }, []);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [error, setError] = useState(false);
+  useEffect(() => { let active = true; const qs = new URLSearchParams(); if (from) qs.set("from", from); if (to) qs.set("to", to); setError(false); void request<RevenueData>(`/admin/revenue?${qs}`).then((result) => { if (active) setData(result); }).catch(() => { if (active) setError(true); }); return () => { active = false; }; }, [from, to]);
   if (!data) return <p className="empty">{t.loading}</p>;
   return <>
     <section className="admin-intro"><h2>{t.revenueTitle}</h2></section>
@@ -325,6 +344,8 @@ function AdminRevenue({ t }: { t: typeof adminCopy.en }) {
       <div className="revenue-card"><div className="revenue-value">{data.total.count}</div><div className="revenue-label">{t.paidOrders}</div></div>
     </div>
     <h2 className="section-title">{t.creatorRevenue}</h2>
+    <div className="admin-filter-fields"><label>{t.fromDate}<input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} /></label><label>{t.toDate}<input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} /></label></div>
+    {error && <p role="alert">{t.requestFailed}</p>}
     {data.creators.length ? <div className="admin-table-wrap"><table className="admin-table">
       <thead><tr><th>Creator</th><th>{t.revenue}</th><th>{t.purchases}</th></tr></thead>
       <tbody>{data.creators.map((c) => <tr key={c._id}>
@@ -345,7 +366,8 @@ function Admin() {
   const isOrders = location.pathname === "/admin/orders";
   const isRevenue = location.pathname === "/admin/revenue";
   const isCategories = location.pathname === "/admin/categories";
-  const isCatalogue = !isOrders && !isRevenue && !isCategories && !creatorId;
+  const isCustomers = location.pathname === "/admin/customers";
+  const isCatalogue = !isOrders && !isRevenue && !isCategories && !isCustomers && !creatorId;
   const [language, setLanguage] = useState<AdminLanguage>(() => adminLanguage(localStorage.getItem("marketplace_admin_language")));
   const [token, setAdminToken] = useState(sessionStorage.getItem("marketplace_admin_token") ?? "");
   const [creators, setCreators] = useState<AdminCreator[]>([]);
@@ -419,9 +441,10 @@ function Admin() {
     <header className="admin-header"><div><p className="brand-lockup"><img src="/vesper.svg" alt="" /><span className="brand-name">Vesper</span></p><h1>{t.adminTitle}</h1></div><LanguageSwitch language={language} setLanguage={setLanguage} title={t.language} /></header>
     <nav className="admin-nav" aria-label={t.adminTitle}>
       <Link to="/admin" aria-current={isCatalogue || creatorId ? "page" : undefined}>{t.catalogue}</Link>
-      <NavLink to="/admin/categories">{t.categories}</NavLink>
       <NavLink to="/admin/orders">{t.orders}</NavLink>
       <NavLink to="/admin/revenue">{t.revenue}</NavLink>
+      <NavLink to="/admin/categories">{t.categories}</NavLink>
+      <NavLink to="/admin/customers">{t.customers}</NavLink>
       <button type="button" className="plain-button" onClick={signOut}>{t.signOut}</button>
     </nav>
     {notice && <p role="status" className="notice">{notice}</p>}
@@ -429,7 +452,8 @@ function Admin() {
     {isRevenue && <AdminRevenue t={t} />}
     {creatorId ? selectedCreator ? <AdminCreatorContent creator={selectedCreator} products={currentProducts} assets={currentAssets} categories={categories} t={t} selectedAssetIds={selectedAssetIds} setSelectedAssetIds={setSelectedAssetIds} showDialog={showContentDialog} openDialog={() => setShowContentDialog(true)} closeDialog={() => setShowContentDialog(false)} upload={upload} submit={submit} publish={publishProduct} load={load} /> : <p className="empty">{t.loading}</p> : null}
     {isCatalogue && <AdminCatalogue creators={creators} t={t} showDialog={showCreatorDialog} openDialog={() => setShowCreatorDialog(true)} closeDialog={() => setShowCreatorDialog(false)} submit={submit} publish={publishCreator} />}
-    {isCategories && <AdminCategories categories={categories} t={t} submit={submit} load={load} />}
+    {isCategories && <AdminCategories categories={categories} products={products} t={t} submit={submit} load={load} />}
+    {isCustomers && <AdminCustomers t={t} />}
   </main>;
 }
 
@@ -514,9 +538,19 @@ function AdminCreatorContent({ creator, products, assets, categories, t, selecte
     {showDialog && <Dialog title={editing ? t.editContent : t.newContent} close={closeDialog} closeLabel={t.close}><form onSubmit={(event) => void submit(event, editing ? `/admin/products/${editing._id}` : "/admin/products", (data) => ({ ...(editing ? {} : { creatorId: creator._id }), title: data.get("title"), description: data.get("description"), deliveryMessage: data.get("deliveryMessage"), categoryIds: selectedCategoryIds, previewMode: data.get("previewMode"), previewAssetId: data.get("previewMode") === "none" ? null : previewAssetId || undefined, mediaAssetIds: selectedAssetIds, amountMinor: euroToMinor(data.get("price")), currency: "EUR" }), editing ? t.saved : t.productCreated, editing ? "PATCH" : "POST").then((saved) => { if (saved) closeDialog(); })}><label>{t.productTitle}<input name="title" defaultValue={editing?.title} required /></label><label>{t.deliveryMessage}<textarea name="deliveryMessage" defaultValue={editing?.deliveryMessage} maxLength={1000} /></label><label>{t.description}<textarea name="description" defaultValue={editing?.description} /></label><label>{t.price}<input name="price" type="text" inputMode="decimal" pattern="\d+(\.\d{1,2})?" defaultValue={editing ? (editing.amountMinor / 100).toFixed(2) : ""} required /></label><label>{t.preview}<select name="previewMode" defaultValue={editing?.previewMode ?? "blurred"}><option value="none">{t.noPreviewOption}</option><option value="blurred">{t.blurredPreviewOption}</option><option value="visible">{t.visiblePreviewOption}</option></select></label><AdminAssetPicker assets={assets} selectedId={previewAssetId} onChange={setPreviewAssetId} t={t} /><fieldset><legend>{t.categories}</legend>{categories.filter((category) => category.status === "active").map((category) => <label key={category._id}><input type="checkbox" checked={selectedCategoryIds.includes(category._id)} onChange={(event) => setSelectedCategoryIds(event.target.checked ? [...selectedCategoryIds, category._id] : selectedCategoryIds.filter((id) => id !== category._id))} /> {category.name}</label>)}</fieldset><fieldset><legend>{t.privateFiles}</legend><div className="delivery-asset-grid">{visibleDeliveryAssets.map((asset) => <DeliveryAssetCard key={asset._id} asset={asset} selected={selectedAssetIds.includes(asset._id)} onToggle={() => setSelectedAssetIds(selectedAssetIds.includes(asset._id) ? selectedAssetIds.filter((id) => id !== asset._id) : [...selectedAssetIds, asset._id])} t={t} />)}</div>{!deliveryAssets.length && <p className="help">{t.noMedia}</p>}<div className="asset-pagination"><span>{selectedAssetIds.length} {t.selected}</span><button type="button" className="plain-button" disabled={deliveryPage <= 1} onClick={() => setDeliveryPage((page) => page - 1)}>{t.previousPage}</button><span>{deliveryPage} / {pageCount}</span><button type="button" className="plain-button" disabled={deliveryPage >= pageCount} onClick={() => setDeliveryPage((page) => page + 1)}>{t.nextPage}</button></div></fieldset><button className="dialog-submit" disabled={!selectedAssetIds.length}>{editing ? t.save : t.createProduct}</button></form><section className="upload-panel"><h3>{t.uploadMedia}</h3><form onSubmit={(event) => void upload(event)}><label>{t.uploadPurpose}<select name="purpose" defaultValue="delivery"><option value="delivery">{t.deliveryFile}</option><option value="preview">{t.previewFile}</option></select></label><label>{t.chooseFile}<input name="file" type="file" accept="image/*,video/*,audio/*,application/*" required /></label><button>{t.upload}</button></form><p className="help">{t.uploadHelp}</p></section></Dialog>}</>;
 }
 
-function AdminCategories({ categories, t, submit, load }: { categories: AdminCategory[]; t: typeof adminCopy.en; submit: AdminSubmit; load: () => void }) {
-  const archiveCategory = async (id: string) => { await request(`/admin/categories/${id}`, { method: "DELETE" }); load(); };
-  return <section className="category-manager"><section className="admin-intro"><h2>{t.categories}</h2><p>{t.categoryHelp}</p></section><div className="setup-grid"><section><h3>{t.createCategory}</h3><form onSubmit={(event) => void submit(event, "/admin/categories", (data) => ({ name: data.get("name"), slug: data.get("slug") }))}><label>{t.categoryName}<input name="name" required /></label><label>{t.categorySlug}<input name="slug" pattern="[a-z0-9-]+" required /></label><button>{t.createCategory}</button></form></section><section><h3>{t.categories}</h3>{categories.length ? <ul className="category-list">{categories.map((category) => <li key={category._id}><span>{category.name}</span><small>{category.slug}</small>{category.status === "active" ? <button type="button" className="plain-button" onClick={() => void archiveCategory(category._id)}>{t.archive}</button> : <span className="status-badge">{t.archive}</span>}</li>)}</ul> : <p className="empty">{t.categoryEmpty}</p>}</section></div></section>;
+function AdminCategories({ categories, products, t, submit, load }: { categories: AdminCategory[]; products: AdminProduct[]; t: typeof adminCopy.en; submit: AdminSubmit; load: () => void }) {
+  const [editing, setEditing] = useState<AdminCategory | null>(null);
+  const [error, setError] = useState(false);
+  const archiveCategory = async (id: string) => { try { await request(`/admin/categories/${id}`, { method: "DELETE" }); setError(false); load(); } catch { setError(true); } };
+  return <section className="category-manager"><section className="admin-intro"><h2>{t.categories}</h2><p>{t.categoryHelp}</p></section><div className="setup-grid"><section><h3>{editing ? t.edit : t.createCategory}</h3><form key={editing?._id ?? "new"} onSubmit={(event) => void submit(event, editing ? `/admin/categories/${editing._id}` : "/admin/categories", (data) => ({ name: data.get("name"), slug: data.get("slug") }), t.saved, editing ? "PATCH" : "POST").then((saved) => { if (saved) setEditing(null); })}><label>{t.categoryName}<input name="name" defaultValue={editing?.name} required /></label><label>{t.categorySlug}<input name="slug" defaultValue={editing?.slug} pattern="[a-z0-9-]+" required /></label><button>{editing ? t.save : t.createCategory}</button>{editing && <button type="button" className="plain-button" onClick={() => setEditing(null)}>{t.cancel}</button>}</form></section><section><h3>{t.categories}</h3>{error && <p role="alert">{t.requestFailed}</p>}{categories.length ? categories.map((category) => <details key={category._id}><summary>{category.name} ({category.slug}) {category.status !== "active" && `— ${t.archived}`}</summary><div><button type="button" onClick={() => setEditing(category)}>{t.edit}</button>{category.status === "active" && <button type="button" className="plain-button" onClick={() => { if (window.confirm(t.archiveConfirm)) void archiveCategory(category._id); }}>{t.archive}</button>}</div><h4>{t.productsInCategory}</h4><ul>{products.filter((product) => product.categoryIds?.includes(category._id)).map((product) => <li key={product._id}>{product.title}</li>)}</ul>{!products.some((product) => product.categoryIds?.includes(category._id)) && <p>{t.noCategoryProducts}</p>}</details>) : <p className="empty">{t.categoryEmpty}</p>}</section></div></section>;
+}
+
+function AdminCustomers({ t }: { t: typeof adminCopy.en }) {
+  const [customers, setCustomers] = useState<{ _id: string; telegramId: string; username?: string; firstName?: string; lastName?: string }[]>([]);
+  const [selected, setSelected] = useState<string>();
+  const [error, setError] = useState(false);
+  useEffect(() => { void request<{ items: typeof customers }>("/admin/customers").then((result) => setCustomers(result.items)).catch(() => setError(true)); }, []);
+  return <><section className="admin-intro"><h2>{t.customers}</h2></section>{error ? <p role="alert">{t.requestFailed}</p> : <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Telegram ID</th><th>{t.customer}</th></tr></thead><tbody>{customers.map((customer) => <tr key={customer._id} onClick={() => setSelected(selected === customer._id ? undefined : customer._id)}><td><button type="button" className="plain-button">{customer.telegramId}</button></td><td>{[customer.firstName, customer.lastName].filter(Boolean).join(" ") || (customer.username ? `@${customer.username}` : "—")}</td></tr>)}</tbody></table></div>}{selected && <section><h2>{t.customerOrders}</h2><AdminOrders key={selected} t={t} customerId={selected} /></section>}</>;
 }
 
 function Marketplace() {
@@ -537,6 +571,7 @@ export function App() {
     <Route path="/admin" element={<Admin />} />
     <Route path="/admin/creators/:creatorId" element={<Admin />} />
     <Route path="/admin/categories" element={<Admin />} />
+    <Route path="/admin/customers" element={<Admin />} />
     <Route path="/admin/orders" element={<Admin />} />
     <Route path="/admin/revenue" element={<Admin />} />
     <Route path="*" element={<Marketplace />} />
