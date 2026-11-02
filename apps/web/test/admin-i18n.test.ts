@@ -10,10 +10,10 @@ test("admin language safely defaults to English and enables Hebrew RTL", () => {
   assert.equal(adminDirection("en"), "ltr");
 });
 
-test("admin copy translates marketplace attribution guidance", () => {
-  assert.match(adminCopy.en.attributionHelp, /MantaPay/i);
-  assert.match(adminCopy.he.attributionHelp, /MantaPay/);
-  assert.match(adminCopy.he.secretWarning, /לעולם אין/);
+test("admin copy explains the dedicated categories workflow", () => {
+  assert.match(adminCopy.en.categoryHelp, /customers/i);
+  assert.match(adminCopy.he.categoryHelp, /לקוחות/);
+  assert.match(adminCopy.he.categoryEmpty, /קטגוריות/);
 });
 
 test("product admin copy describes optional customer delivery text", () => {

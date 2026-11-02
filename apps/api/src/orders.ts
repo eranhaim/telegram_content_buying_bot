@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { Agency, Cart, Category, Creator, Delivery, Entitlement, MediaAsset, Order, PaymentAttempt, Product, TelegramUser } from "./models.js";
+import { Cart, Category, Creator, Delivery, Entitlement, MediaAsset, Order, PaymentAttempt, Product, TelegramUser } from "./models.js";
 import { canReceiveProtectedDelivery } from "./auth.js";
 import { createCheckoutForOrder, type MantapayStatus, type MantapayWebhookPayment } from "./mantapay.js";
 import { deliverEntitlements } from "./telegram.js";
@@ -16,15 +16,9 @@ export async function createOrderForCart(telegramUserId: string) {
   const productIds = cart.items.map((item: any) => item.productId);
   const products = await Product.find({ _id: { $in: productIds }, status: "published" });
   if (products.length !== productIds.length) throw new Error("unavailable_product");
-  const agencies = new Map<string, any>();
   for (const product of products) {
     if (product.currency !== cart.currency) throw new Error("mixed_currency_cart");
-    const key = String(product.agencyId);
-    if (!agencies.has(key)) agencies.set(key, await Agency.findById(product.agencyId));
   }
-  if (agencies.size !== 1) throw new Error("mixed_agency_cart");
-  const agency = [...agencies.values()][0];
-  if (!agency) throw new Error("agency_checkout_not_configured");
   const creatorDocs = await Creator.find({ _id: { $in: products.map((product: any) => product.creatorId) } });
   const creatorById = new Map(creatorDocs.map((creator: any) => [String(creator._id), creator]));
   const productById = new Map(products.map((product) => [String(product._id), product]));
@@ -32,8 +26,8 @@ export async function createOrderForCart(telegramUserId: string) {
     const product = productById.get(String(item.productId))!;
     const creator = creatorById.get(String(product.creatorId));
     const [assets, categories] = await Promise.all([
-      MediaAsset.find({ _id: { $in: product.mediaAssetIds }, agencyId: product.agencyId, status: "ready" }),
-      Category.find({ _id: { $in: product.categoryIds ?? [] }, agencyId: product.agencyId }),
+      MediaAsset.find({ _id: { $in: product.mediaAssetIds }, status: "ready" }),
+      Category.find({ _id: { $in: product.categoryIds ?? [] } }),
     ]);
     if (assets.length !== product.mediaAssetIds.length) throw new Error("product_media_unavailable");
     return {
@@ -52,7 +46,6 @@ export async function createOrderForCart(telegramUserId: string) {
     try {
       order = await Order.create({
         publicId: orderPublicId(String(cart._id)), checkoutIdempotencyKey: `cart:${cart._id}`,
-        agencyId: agency._id,
         telegramUserId, cartId: cart._id, lines, subtotalMinor,
         totalMinor: subtotalMinor,
         currency: cart.currency, returnNonce: crypto.randomBytes(18).toString("base64url"),

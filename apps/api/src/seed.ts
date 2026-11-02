@@ -4,8 +4,8 @@
  * Creates mock creators, categories, products, and placeholder media in
  * MongoDB + MinIO.  Idempotent: skips entities that already exist by slug.
  *
- * After running, map each creator to a real HigherPays account via the
- * protected admin UI (/admin → creator edit).
+ * Categories, creators, products, and media are all global to the
+ * single-operator catalogue.
  *
  * Usage:
  *   npx tsx apps/api/src/seed.ts
@@ -15,7 +15,7 @@
 import mongoose from "mongoose";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { config } from "./config.js";
-import { Agency, Agent, Category, Creator, MediaAsset, Product } from "./models.js";
+import { Category, Creator, MediaAsset, Product } from "./models.js";
 
 // ── Placeholder media ──────────────────────────────────────────────────────
 
@@ -60,8 +60,6 @@ async function uploadIfMissing(s3: S3Client, key: string, body: Buffer, contentT
 
 // ── Seed data ──────────────────────────────────────────────────────────────
 
-const WORKSPACE_ID = process.env.HIGHERPAYS_WORKSPACE_ID ?? "onlyelite-demo";
-
 const CREATORS = [
   { displayName: "Luna Bright", slug: "luna-bright", bio: "Exclusive photo sets and behind-the-scenes content." },
   { displayName: "Alex Storm", slug: "alex-storm", bio: "Premium video content and tutorials." },
@@ -100,35 +98,12 @@ async function seed() {
   const s3 = makeS3();
   if (!s3) console.warn("S3 not configured — skipping media uploads. Products will not be publishable.");
 
-  // Agency.
-  let agency = await Agency.findOne({ higherPaysWorkspaceId: WORKSPACE_ID });
-  if (!agency) {
-    agency = await Agency.create({ name: "OnlyElite", higherPaysWorkspaceId: WORKSPACE_ID, status: "active" });
-    console.log(`Created agency: ${agency.name}`);
-  } else {
-    console.log(`Agency exists: ${agency.name}`);
-  }
-
-  // Default agent (required for checkout).
-  let agent = await Agent.findOne({ agencyId: agency._id });
-  if (!agent) {
-    agent = await Agent.create({ agencyId: agency._id, name: "Vault Bot", higherPaysAgentId: "vault-bot", active: true });
-    console.log(`Created agent: ${agent.name}`);
-  } else {
-    console.log(`Agent exists: ${agent.name}`);
-  }
-  if (!agency.defaultAgentId || String(agency.defaultAgentId) !== String(agent._id)) {
-    agency.defaultAgentId = agent._id;
-    await agency.save();
-    console.log("Set default agent on agency.");
-  }
-
   // Categories.
   const categoryMap = new Map<string, any>();
   for (const cat of CATEGORIES) {
-    let doc = await Category.findOne({ agencyId: agency._id, slug: cat.slug });
+    let doc = await Category.findOne({ slug: cat.slug });
     if (!doc) {
-      doc = await Category.create({ agencyId: agency._id, ...cat, status: "active" });
+      doc = await Category.create({ ...cat, status: "active" });
       console.log(`Created category: ${doc.name}`);
     }
     categoryMap.set(cat.slug, doc);
@@ -140,9 +115,7 @@ async function seed() {
     let doc = await Creator.findOne({ slug: cr.slug });
     if (!doc) {
       doc = await Creator.create({
-        agencyId: agency._id,
         ...cr,
-        higherPaysWorkspaceId: WORKSPACE_ID,
         status: "published",
         rightsAttestation: {
           affirmedBy: "seed-script",
@@ -174,9 +147,8 @@ async function seed() {
       const category = categoryMap.get(prod.category);
 
       // Create preview asset.
-      const previewKey = `agency/${agency._id}/assets/seed-preview-${prod.slug}/preview.png`;
+      const previewKey = `assets/seed-preview-${prod.slug}/preview.png`;
       const previewAsset = await MediaAsset.create({
-        agencyId: agency._id,
         storageKey: previewKey,
         fileName: "preview.png",
         mimeType: "image/png",
@@ -188,9 +160,8 @@ async function seed() {
       if (s3) await uploadIfMissing(s3, previewKey, PREVIEW_PNG, "image/png");
 
       // Create delivery asset.
-      const deliveryKey = `agency/${agency._id}/assets/seed-delivery-${prod.slug}/content.txt`;
+      const deliveryKey = `assets/seed-delivery-${prod.slug}/content.txt`;
       const deliveryAsset = await MediaAsset.create({
-        agencyId: agency._id,
         storageKey: deliveryKey,
         fileName: "content.txt",
         mimeType: "text/plain",
@@ -202,7 +173,6 @@ async function seed() {
       if (s3) await uploadIfMissing(s3, deliveryKey, DELIVERY_TXT, "text/plain");
 
       await Product.create({
-        agencyId: agency._id,
         creatorId: creator._id,
         title: prod.title,
         slug: prod.slug,
@@ -222,8 +192,7 @@ async function seed() {
   console.log("\n✓ Seed complete.");
   console.log("Next steps:");
   console.log("  1. Start the app and open /admin");
-  console.log("  2. For each creator, map to a real HigherPays account via the creator picker");
-  console.log("  3. Verify the catalog appears in the Telegram Mini App");
+  console.log("  2. Verify the catalog appears in the Telegram Mini App");
 
   await mongoose.disconnect();
 }

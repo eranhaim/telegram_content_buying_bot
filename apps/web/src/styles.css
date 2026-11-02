@@ -953,6 +953,11 @@ fieldset input { width: auto; margin-inline-end: 8px; }
   margin: 0;
   background: linear-gradient(145deg, rgba(255, 248, 244, .035), transparent 60%), var(--booth);
 }
+.category-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.category-list li { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.category-list li:last-child { border-bottom: 0; }
+.category-list small { color: var(--ash); }
+.category-list .plain-button { margin-inline-start: auto; }
 .status-badge { border: 1px solid rgba(255, 255, 255, .08); letter-spacing: .02em; }
 
 @media (hover: hover) {

@@ -12,23 +12,7 @@ const assetSnapshot = new Schema({
   telegramFileId: String,
 }, { _id: false });
 
-const agencySchema = new Schema({
-  name: { type: String, required: true, trim: true },
-  higherPaysWorkspaceId: { type: String, sparse: true, unique: true },
-  defaultAgentId: { type: Schema.Types.ObjectId, ref: "Agent" },
-  status: { type: String, enum: ["active", "archived"], default: "active" },
-}, timestamps);
-
-const agentSchema = new Schema({
-  agencyId: { type: Schema.Types.ObjectId, ref: "Agency", required: true, index: true },
-  name: { type: String, required: true, trim: true },
-  higherPaysAgentId: { type: String, required: true },
-  active: { type: Boolean, default: true },
-}, timestamps);
-agentSchema.index({ agencyId: 1, higherPaysAgentId: 1 }, { unique: true });
-
 const creatorSchema = new Schema({
-  agencyId: { type: Schema.Types.ObjectId, ref: "Agency", required: true, index: true },
   displayName: { type: String, required: true, trim: true },
   slug: { type: String, required: true, lowercase: true, trim: true, unique: true },
   bio: { type: String, default: "" },
@@ -36,11 +20,6 @@ const creatorSchema = new Schema({
   telescopeProfileId: String,
   telescopeAvatarKey: String,
   telescopeAvatarThumbKey: String,
-  higherPaysWorkspaceId: String,
-  higherPaysAgentId: String,
-  higherPaysAgentName: String,
-  higherPaysAccountId: String,
-  higherPaysAccountName: String,
   status: { type: String, enum: ["draft", "published", "archived"], default: "draft" },
   rightsAttestation: {
     affirmedBy: String, affirmedAt: Date, statementVersion: String,
@@ -49,15 +28,13 @@ const creatorSchema = new Schema({
 }, timestamps);
 
 const categorySchema = new Schema({
-  agencyId: { type: Schema.Types.ObjectId, ref: "Agency", required: true, index: true },
   name: { type: String, required: true, trim: true },
   slug: { type: String, required: true, trim: true, lowercase: true },
   status: { type: String, enum: ["active", "archived"], default: "active" },
 }, timestamps);
-categorySchema.index({ agencyId: 1, slug: 1 }, { unique: true });
+categorySchema.index({ slug: 1 }, { unique: true });
 
 const mediaAssetSchema = new Schema({
-  agencyId: { type: Schema.Types.ObjectId, ref: "Agency", required: true, index: true },
   storageKey: { type: String, required: true, unique: true },
   fileName: { type: String, required: true },
   mimeType: { type: String, required: true },
@@ -69,7 +46,6 @@ const mediaAssetSchema = new Schema({
 }, timestamps);
 
 const productSchema = new Schema({
-  agencyId: { type: Schema.Types.ObjectId, ref: "Agency", required: true, index: true },
   creatorId: { type: Schema.Types.ObjectId, ref: "Creator", required: true, index: true },
   title: { type: String, required: true, trim: true },
   slug: { type: String, required: true, trim: true, lowercase: true },
@@ -89,7 +65,7 @@ const productSchema = new Schema({
   telescopeClicks: { type: Number, default: 0, min: 0 },
 }, timestamps);
 productSchema.index({ creatorId: 1, slug: 1 }, { unique: true });
-productSchema.index({ agencyId: 1, status: 1, createdAt: -1 });
+productSchema.index({ status: 1, createdAt: -1 });
 
 const telegramUserSchema = new Schema({
   telegramId: { type: String, required: true, unique: true },
@@ -125,17 +101,11 @@ const orderLineSchema = new Schema({
   categoryIds: { type: [String], default: [] },
   categoryNames: { type: [String], default: [] },
   contentVersion: { type: Number, required: true },
-  higherPaysAccountId: String,
   ...money,
   assets: { type: [assetSnapshot], default: [] },
 }, { _id: true });
 const orderSchema = new Schema({
   publicId: { type: String, required: true, unique: true },
-  agencyId: { type: Schema.Types.ObjectId, ref: "Agency", required: true, index: true },
-  agentId: { type: Schema.Types.ObjectId, ref: "Agent", index: true },
-  higherPaysWorkspaceId: String,
-  higherPaysAgentId: String,
-  higherPaysAccountId: String,
   telegramUserId: { type: Schema.Types.ObjectId, ref: "TelegramUser", required: true, index: true },
   cartId: { type: Schema.Types.ObjectId, ref: "Cart", required: true, unique: true },
   checkoutIdempotencyKey: { type: String, required: true, unique: true },
@@ -146,9 +116,6 @@ const orderSchema = new Schema({
   paymentStatus: { type: String, enum: ["pending", "paid", "failed", "expired", "refunded", "charged_back"], default: "pending", index: true },
   fulfillmentStatus: { type: String, enum: ["not_ready", "queued", "partial", "delivered", "failed", "revoked"], default: "not_ready" },
   checkoutUrl: String,
-  higherPaysPaymentLinkReference: { type: String, sparse: true, unique: true },
-  higherPaysCheckoutUrl: String,
-  higherPaysPaymentId: String,
   providerTransactionId: String,
   returnNonce: { type: String, required: true, unique: true },
   expiresAt: { type: Date, required: true },
@@ -157,7 +124,7 @@ const orderSchema = new Schema({
 
 const paymentAttemptSchema = new Schema({
   orderId: { type: Schema.Types.ObjectId, ref: "Order", required: true, index: true },
-  provider: { type: String, enum: ["higherpays", "mantapay"], default: "mantapay" },
+  provider: { type: String, enum: ["mantapay"], default: "mantapay" },
   providerEventId: { type: String, sparse: true, unique: true },
   providerTransactionId: { type: String, sparse: true, unique: true },
   status: { type: String, enum: ["created", "pending", "approved", "declined", "chargeback"], default: "created" },
@@ -202,8 +169,6 @@ const auditEventSchema = new Schema({
   entityId: String, metadata: Schema.Types.Mixed, ip: String,
 }, timestamps);
 
-export const Agency = models.Agency || model("Agency", agencySchema);
-export const Agent = models.Agent || model("Agent", agentSchema);
 export const Creator = models.Creator || model("Creator", creatorSchema);
 export const Category = models.Category || model("Category", categorySchema);
 export const MediaAsset = models.MediaAsset || model("MediaAsset", mediaAssetSchema);

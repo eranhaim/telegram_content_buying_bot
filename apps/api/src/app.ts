@@ -4,7 +4,7 @@ import { z } from "zod";
 import { config } from "./config.js";
 import { BROWSER_CUSTOMER_LABEL, isBrowserCustomer, issueAdminSession, issueBrowserSession, issueTelegramSession, requireActor, saveCustomerLocale, verifyAdminPassword } from "./auth.js";
 import { customerLocales } from "./customer-locale.js";
-import { Agency, Agent, AuditEvent, Cart, Category, Creator, Delivery, Entitlement, MediaAsset, Order, Product, TelegramUser, WebhookEvent } from "./models.js";
+import { AuditEvent, Cart, Category, Creator, Delivery, Entitlement, MediaAsset, Order, Product, TelegramUser, WebhookEvent } from "./models.js";
 import { applyMantapayPayment, createOrderForCart } from "./orders.js";
 import { parseWebhook, verifyWebhookSignature } from "./mantapay.js";
 import { objectKey, signedDownloadUrl, signedUploadUrl, storedObject } from "./storage.js";
@@ -35,7 +35,7 @@ const asyncRoute = (fn: (req: Request, res: Response) => Promise<unknown>) =>
     const status = error instanceof z.ZodError ? 400
       : message === "invalid_browser_session" ? 400
       : ["telegram_auth_unavailable", "invalid_telegram_init_data", "expired_telegram_init_data", "missing_telegram_user"].includes(message) ? 401
-      : ["cart_empty", "unavailable_product", "mixed_currency_cart", "mixed_agency_cart", "age_confirmation_required", "agency_checkout_not_configured", "telegram_delivery_required"].includes(message) ? 409
+      : ["cart_empty", "unavailable_product", "mixed_currency_cart", "age_confirmation_required", "telegram_delivery_required"].includes(message) ? 409
         : ["mantapay_not_configured", "object_storage_not_configured"].includes(message) ? 503 : 500;
     res.status(status).json({ error: message });
   });
@@ -183,10 +183,6 @@ app.post("/api/cart/items", requireActor("customer"), asyncRoute(async (req, res
   const creator = await Creator.findById(product.creatorId);
   const userId = actorUser(req)!;
   const existing = await Cart.findOne({ telegramUserId: userId, currency: product.currency, status: "active" });
-  if (existing?.items.length) {
-    const firstProduct = await Product.findById(existing.items[0].productId).select("agencyId");
-    if (firstProduct && String(firstProduct.agencyId) !== String(product.agencyId)) return res.status(409).json({ error: "mixed_agency_cart" });
-  }
   const cart = await Cart.findOneAndUpdate(
     { telegramUserId: userId, currency: product.currency, status: "active" },
     { $setOnInsert: { telegramUserId: userId, currency: product.currency }, $addToSet: { items: { productId: product._id, titleSnapshot: product.title, creatorNameSnapshot: creator?.displayName ?? "Creator", priceMinorSnapshot: product.amountMinor, contentVersionSnapshot: product.contentVersion } } },
@@ -209,7 +205,7 @@ app.post("/api/checkout", requireActor("customer"), rateLimit(60_000, 5), asyncR
 }));
 app.get("/api/checkout/:publicId", rateLimit(60_000, 10), asyncRoute(async (req, res) => {
   const order = await Order.findOne({ publicId: req.params.publicId, returnNonce: req.query.state, paymentStatus: "pending" });
-  const url = order?.checkoutUrl || order?.higherPaysCheckoutUrl;
+  const url = order?.checkoutUrl;
   if (!order || order.expiresAt < new Date() || !url) return res.status(410).send("This checkout session has expired.");
   res.redirect(302, url);
 }));
@@ -239,24 +235,10 @@ app.post("/api/purchases/:publicId/retry-delivery", requireActor("customer"), as
 const admin = express.Router();
 admin.use(requireActor("admin"));
 
-admin.get("/agencies", asyncRoute(async (_req, res) => res.json({ items: await Agency.find().sort({ name: 1 }) })));
-admin.post("/agencies", asyncRoute(async (req, res) => {
-  const body = z.object({ name: z.string().min(1).max(120) }).parse(req.body);
-  const agency = await Agency.create(body); await audit(req, "agency.create", "agency", String(agency._id)); res.status(201).json(agency);
-}));
-admin.patch("/agencies/:id", asyncRoute(async (req, res) => {
-  const body = z.object({ status: z.enum(["active", "archived"]).optional() }).parse(req.body);
-  const agency = await Agency.findByIdAndUpdate(req.params.id, { $set: body }, { new: true }); if (!agency) return res.status(404).json({ error: "agency_not_found" });
-  await audit(req, "agency.update", "agency", String(agency._id), body); res.json(agency);
-}));
-
-admin.get("/agents", asyncRoute(async (_req, res) => res.json({ items: await Agent.find().sort({ name: 1 }) })));
 admin.get("/creators", asyncRoute(async (_req, res) => res.json({ items: await Creator.find().sort({ displayName: 1 }) })));
 admin.post("/creators", asyncRoute(async (req, res) => {
-  const body = z.object({ agencyId: objectId, displayName: z.string().min(1).max(120), slug: z.string().regex(/^[a-z0-9-]+$/), bio: z.string().max(4000).default(""), rightsAttestation: z.object({ affirmedBy: z.string().min(1) }) }).parse(req.body);
-  const agency = await Agency.findById(body.agencyId);
-  if (!agency || agency.status !== "active") return res.status(409).json({ error: "agency_not_found" });
-  const creator = await Creator.create({ agencyId: agency._id, displayName: body.displayName, slug: body.slug, bio: body.bio, rightsAttestation: { affirmedBy: body.rightsAttestation.affirmedBy, statementVersion: "2026-10", creatorIsAdult: true, distributionAuthorized: true, affirmedAt: new Date() } });
+  const body = z.object({ displayName: z.string().min(1).max(120), slug: z.string().regex(/^[a-z0-9-]+$/), bio: z.string().max(4000).default(""), rightsAttestation: z.object({ affirmedBy: z.string().min(1) }) }).parse(req.body);
+  const creator = await Creator.create({ displayName: body.displayName, slug: body.slug, bio: body.bio, rightsAttestation: { affirmedBy: body.rightsAttestation.affirmedBy, statementVersion: "2026-10", creatorIsAdult: true, distributionAuthorized: true, affirmedAt: new Date() } });
   await audit(req, "creator.create", "creator", String(creator._id)); res.status(201).json(creator);
 }));
 admin.patch("/creators/:id", asyncRoute(async (req, res) => {
@@ -272,13 +254,9 @@ admin.delete("/creators/:id", asyncRoute(async (req, res) => {
   await audit(req, "creator.archive", "creator", String(creator._id)); res.status(204).end();
 }));
 
-admin.get("/categories", asyncRoute(async (req, res) => {
-  const agencyId = objectId.optional().parse(req.query.agencyId);
-  res.json({ items: await Category.find(agencyId ? { agencyId } : {}).sort({ name: 1 }) });
-}));
+admin.get("/categories", asyncRoute(async (_req, res) => res.json({ items: await Category.find().sort({ name: 1 }) })));
 admin.post("/categories", asyncRoute(async (req, res) => {
-  const body = z.object({ agencyId: objectId, name: z.string().min(1).max(80), slug: z.string().regex(/^[a-z0-9-]+$/) }).parse(req.body);
-  if (!await Agency.exists({ _id: body.agencyId, status: "active" })) return res.status(409).json({ error: "agency_not_found" });
+  const body = z.object({ name: z.string().min(1).max(80), slug: z.string().regex(/^[a-z0-9-]+$/) }).parse(req.body);
   const category = await Category.create(body); await audit(req, "category.create", "category", String(category._id), body); res.status(201).json(category);
 }));
 admin.patch("/categories/:id", asyncRoute(async (req, res) => {
@@ -294,10 +272,10 @@ admin.delete("/categories/:id", asyncRoute(async (req, res) => {
 }));
 
 admin.post("/assets/upload-url", asyncRoute(async (req, res) => {
-  const body = z.object({ agencyId: objectId, fileName: z.string().min(1).max(240), purpose: z.enum(["delivery", "preview"]).default("delivery"), mimeType: z.string(), bytes: z.number().int().positive().max(maxAssetBytes), sha256: z.string().regex(/^[a-f0-9]{64}$/i) }).parse(req.body);
+  const body = z.object({ fileName: z.string().min(1).max(240), purpose: z.enum(["delivery", "preview"]).default("delivery"), mimeType: z.string(), bytes: z.number().int().positive().max(maxAssetBytes), sha256: z.string().regex(/^[a-f0-9]{64}$/i) }).parse(req.body);
   if (body.purpose === "preview") previewMimeType.parse(body.mimeType); else deliveryMimeType.parse(body.mimeType);
   const asset = await MediaAsset.create({ ...body, storageKey: "pending" });
-  asset.storageKey = objectKey(body.agencyId, String(asset._id), body.fileName); await asset.save();
+  asset.storageKey = objectKey(String(asset._id), body.fileName); await asset.save();
   res.status(201).json({ asset, uploadUrl: await signedUploadUrl(asset.storageKey, asset.mimeType) });
 }));
 admin.post("/assets/:id/complete", asyncRoute(async (req, res) => {
@@ -311,7 +289,6 @@ admin.get("/assets", asyncRoute(async (_req, res) => {
   res.json({
     items: await Promise.all(assets.map(async (asset: any) => ({
       _id: String(asset._id),
-      agencyId: String(asset.agencyId),
       fileName: asset.fileName,
       mimeType: asset.mimeType,
       purpose: asset.purpose,
@@ -324,11 +301,11 @@ admin.get("/assets", asyncRoute(async (_req, res) => {
 
 admin.get("/products", asyncRoute(async (_req, res) => res.json({ items: await Product.find().sort({ createdAt: -1 }) })));
 admin.post("/products", asyncRoute(async (req, res) => {
-  const body = z.object({ agencyId: objectId, creatorId: objectId, title: z.string().min(1).max(200), slug: z.string().regex(/^[a-z0-9-]+$/).optional(), description: z.string().max(4000).default(""), deliveryMessage: z.string().max(1000).default(""), categoryIds: objectIds, previewAssetId: objectId.optional(), previewMode: z.enum(["none", "blurred", "visible"]).default("blurred"), mediaAssetIds: nonEmptyObjectIds, amountMinor: euroMinor, currency: z.literal("EUR") }).parse(req.body);
-  const creator = await Creator.findOne({ _id: body.creatorId, agencyId: body.agencyId });
-  if (!creator) return res.status(409).json({ error: "creator_agency_mismatch" });
-  if (!previewIsConfigured(body.previewMode, body.previewAssetId) || (body.previewMode !== "none" && !await MediaAsset.exists({ _id: body.previewAssetId, agencyId: body.agencyId, purpose: "preview", status: "ready" }))) return res.status(409).json({ error: "preview_not_ready" });
-  const [mediaCount, categoryCount] = await Promise.all([ MediaAsset.countDocuments({ _id: { $in: body.mediaAssetIds }, agencyId: body.agencyId, purpose: "delivery", status: "ready" }), Category.countDocuments({ _id: { $in: body.categoryIds }, agencyId: body.agencyId, status: "active" }) ]);
+  const body = z.object({ creatorId: objectId, title: z.string().min(1).max(200), slug: z.string().regex(/^[a-z0-9-]+$/).optional(), description: z.string().max(4000).default(""), deliveryMessage: z.string().max(1000).default(""), categoryIds: objectIds, previewAssetId: objectId.optional(), previewMode: z.enum(["none", "blurred", "visible"]).default("blurred"), mediaAssetIds: nonEmptyObjectIds, amountMinor: euroMinor, currency: z.literal("EUR") }).parse(req.body);
+  const creator = await Creator.findById(body.creatorId);
+  if (!creator) return res.status(404).json({ error: "creator_not_found" });
+  if (!previewIsConfigured(body.previewMode, body.previewAssetId) || (body.previewMode !== "none" && !await MediaAsset.exists({ _id: body.previewAssetId, purpose: "preview", status: "ready" }))) return res.status(409).json({ error: "preview_not_ready" });
+  const [mediaCount, categoryCount] = await Promise.all([ MediaAsset.countDocuments({ _id: { $in: body.mediaAssetIds }, purpose: "delivery", status: "ready" }), Category.countDocuments({ _id: { $in: body.categoryIds }, status: "active" }) ]);
   if (mediaCount !== body.mediaAssetIds.length) return res.status(409).json({ error: "delivery_media_not_ready" });
   if (categoryCount !== body.categoryIds.length) return res.status(409).json({ error: "category_not_available" });
   const product = await Product.create({ ...body, slug: body.slug ?? await nextProductSlug(body.title, body.creatorId) }); await audit(req, "product.create", "product", String(product._id)); res.status(201).json(product);
@@ -343,12 +320,12 @@ admin.patch("/products/:id", asyncRoute(async (req, res) => {
   const selectedPreview = body.previewAssetId === null ? undefined : body.previewAssetId ?? product.previewAssetId;
   const previewAssetId = selectedPreview ? String(selectedPreview) : undefined;
   const [creator, mediaCount, categoryCount, previewReady] = await Promise.all([
-    Creator.findOne({ _id: creatorId, agencyId: product.agencyId }),
-    MediaAsset.countDocuments({ _id: { $in: mediaAssetIds }, agencyId: product.agencyId, purpose: "delivery", status: "ready" }),
-    Category.countDocuments({ _id: { $in: catIds }, agencyId: product.agencyId, status: "active" }),
-    previewMode === "none" ? true : Boolean(previewAssetId && await MediaAsset.exists({ _id: previewAssetId, agencyId: product.agencyId, purpose: "preview", status: "ready" })),
+    Creator.findById(creatorId),
+    MediaAsset.countDocuments({ _id: { $in: mediaAssetIds }, purpose: "delivery", status: "ready" }),
+    Category.countDocuments({ _id: { $in: catIds }, status: "active" }),
+    previewMode === "none" ? true : Boolean(previewAssetId && await MediaAsset.exists({ _id: previewAssetId, purpose: "preview", status: "ready" })),
   ]);
-  if (!creator) return res.status(409).json({ error: "creator_agency_mismatch" });
+  if (!creator) return res.status(404).json({ error: "creator_not_found" });
   if (mediaCount !== mediaAssetIds.length) return res.status(409).json({ error: "delivery_media_not_ready" });
   if (categoryCount !== catIds.length) return res.status(409).json({ error: "category_not_available" });
   if (!previewIsConfigured(previewMode, previewAssetId) || !previewReady) return res.status(409).json({ error: "preview_not_ready" });

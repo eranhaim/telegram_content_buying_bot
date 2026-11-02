@@ -13,14 +13,10 @@ import crypto from "node:crypto";
 import { MongoClient } from "mongodb";
 import mongoose from "mongoose";
 import { config } from "./config.js";
-import { Agency, Agent, Category, Creator, MediaAsset, Product } from "./models.js";
+import { Category, Creator, MediaAsset, Product } from "./models.js";
 
 const TELESCOPE_URI = process.env.TELESCOPE_MONGODB_URI;
 const TELESCOPE_DB = "test";
-
-const HIGHERPAYS_WORKSPACE_ID = "42fee9ae-ffb0-4565-9084-1e1cc994fd1b";
-const HIGHERPAYS_ONLY_BUY_AGENT_ID = "eec0a6d3-d33f-4bc7-b7b5-21c65b8ad0a2";
-const HIGHERPAYS_MARKETPLACE_ACCOUNT_ID = "046e4641-c7c6-482d-9cf7-6eefefac8247";
 
 function randomPrice(): number {
   const euros = 5 + Math.floor(Math.random() * 46);
@@ -80,45 +76,10 @@ async function seed() {
   await mongoose.connect(config.MONGODB_URI);
   console.log("Connected to purchasing bot MongoDB.\n");
 
-  // Agency (OnlyElite).
-  let agency = await Agency.findOne({ higherPaysWorkspaceId: HIGHERPAYS_WORKSPACE_ID });
-  if (!agency) {
-    agency = await Agency.create({
-      name: "OnlyElite",
-      higherPaysWorkspaceId: HIGHERPAYS_WORKSPACE_ID,
-      status: "active",
-    });
-    console.log("Created agency: OnlyElite");
-  } else {
-    console.log(`Agency exists: ${agency.name}`);
-  }
-
-  // Agent (Only Buy).
-  let agent = await Agent.findOne({ agencyId: agency._id, higherPaysAgentId: HIGHERPAYS_ONLY_BUY_AGENT_ID });
-  if (!agent) {
-    agent = await Agent.create({
-      agencyId: agency._id,
-      name: "Only Buy",
-      higherPaysAgentId: HIGHERPAYS_ONLY_BUY_AGENT_ID,
-      active: true,
-    });
-    console.log("Created agent: Only Buy");
-  } else {
-    console.log(`Agent exists: ${agent.name}`);
-  }
-
-  // Set default agent on agency.
-  if (!agency.defaultAgentId || String(agency.defaultAgentId) !== String(agent._id)) {
-    agency.defaultAgentId = agent._id;
-    await agency.save();
-    console.log("Set Only Buy as default agent.\n");
-  }
-
   // Category: Videos.
-  let videosCategory = await Category.findOne({ agencyId: agency._id, slug: "videos" });
+  let videosCategory = await Category.findOne({ slug: "videos" });
   if (!videosCategory) {
     videosCategory = await Category.create({
-      agencyId: agency._id,
       name: "Videos",
       slug: "videos",
       status: "active",
@@ -142,13 +103,10 @@ async function seed() {
     let creator = await Creator.findOne({ slug });
     if (!creator) {
       creator = await Creator.create({
-        agencyId: agency._id,
         displayName: profile.name.trim(),
         slug,
         bio: `Content by ${profile.name.trim()}`,
         ...creatorSource,
-        higherPaysWorkspaceId: HIGHERPAYS_WORKSPACE_ID,
-        higherPaysAccountId: HIGHERPAYS_MARKETPLACE_ACCOUNT_ID,
         status: "published",
         rightsAttestation: {
           affirmedBy: "seed-telescope",
@@ -191,7 +149,6 @@ async function seed() {
       // Create a delivery media asset pointing to the Telescope S3 key.
       // The fix-telescope-previews script copies actual files to marketplace MinIO.
       const deliveryAsset = await MediaAsset.create({
-        agencyId: agency._id,
         storageKey: video.s3Key,
         fileName: video.s3Key.split("/").pop() || "video.mp4",
         mimeType: video.s3Key.endsWith(".mov") ? "video/quicktime" : "video/mp4",
@@ -207,7 +164,6 @@ async function seed() {
       if (video.thumbnail) {
         const thumbFileName = video.thumbnail.split("/").pop() || "thumb.jpg";
         const previewAsset = await MediaAsset.create({
-          agencyId: agency._id,
           storageKey: video.thumbnail,
           fileName: thumbFileName,
           mimeType: "image/jpeg",
@@ -222,7 +178,6 @@ async function seed() {
 
       const amountMinor = randomPrice();
       await Product.create({
-        agencyId: agency._id,
         creatorId: creator._id,
         title: `${profile.name.trim()} — Video ${i + 1}`,
         slug: videoSlug,

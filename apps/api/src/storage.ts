@@ -13,8 +13,8 @@ const client = enabled ? new S3Client({ endpoint: config.S3_ENDPOINT, ...options
 // retaining the same S3 signature and credentials.
 const publicClient = enabled ? new S3Client({ endpoint: config.S3_PUBLIC_ENDPOINT ?? config.S3_ENDPOINT, ...options }) : null;
 
-export function objectKey(agencyId: string, assetId: string, filename: string) {
-  return `agency/${agencyId}/assets/${assetId}/${filename.replace(/[^A-Za-z0-9._-]/g, "_")}`;
+export function objectKey(assetId: string, filename: string) {
+  return `assets/${assetId}/${filename.replace(/[^A-Za-z0-9._-]/g, "_")}`;
 }
 
 export async function signedUploadUrl(key: string, mimeType: string) {

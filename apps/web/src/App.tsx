@@ -23,12 +23,11 @@ declare global {
   }
 }
 
-type AdminAgency = { _id: string; name: string };
-type AdminCreator = { _id: string; agencyId: string; displayName: string; slug: string; bio: string; status: string };
-type AdminAsset = { _id: string; agencyId: string; fileName: string; mimeType: string; status: string; purpose?: "delivery" | "preview"; url?: string; createdAt?: string };
-type AdminCategory = { _id: string; agencyId: string; name: string; slug: string; status: string };
+type AdminCreator = { _id: string; displayName: string; slug: string; bio: string; status: string };
+type AdminAsset = { _id: string; fileName: string; mimeType: string; status: string; purpose?: "delivery" | "preview"; url?: string; createdAt?: string };
+type AdminCategory = { _id: string; name: string; slug: string; status: string };
 type AdminProduct = {
-  _id: string; agencyId: string; creatorId: string; title: string; slug: string; description: string; status: string;
+  _id: string; creatorId: string; title: string; slug: string; description: string; status: string;
   deliveryMessage?: string; amountMinor: number; currency: "EUR"; categoryIds: string[]; previewAssetId?: string; previewMode: "none" | "blurred" | "visible"; mediaAssetIds: string[];
 };
 type AdminOrder = {
@@ -400,10 +399,10 @@ function Admin() {
   const { creatorId } = useParams();
   const isOrders = location.pathname === "/admin/orders";
   const isRevenue = location.pathname === "/admin/revenue";
-  const isCatalogue = !isOrders && !isRevenue && !creatorId;
+  const isCategories = location.pathname === "/admin/categories";
+  const isCatalogue = !isOrders && !isRevenue && !isCategories && !creatorId;
   const [language, setLanguage] = useState<AdminLanguage>(() => adminLanguage(localStorage.getItem("marketplace_admin_language")));
   const [token, setAdminToken] = useState(sessionStorage.getItem("marketplace_admin_token") ?? "");
-  const [agencies, setAgencies] = useState<AdminAgency[]>([]);
   const [creators, setCreators] = useState<AdminCreator[]>([]);
   const [assets, setAssets] = useState<AdminAsset[]>([]);
   const [categories, setCategories] = useState<AdminCategory[]>([]);
@@ -427,13 +426,12 @@ function Admin() {
     return fallback;
   };
   const load = () => void Promise.all([
-    request<{ items: AdminAgency[] }>("/admin/agencies"),
     request<{ items: AdminCreator[] }>("/admin/creators"),
     request<{ items: AdminAsset[] }>("/admin/assets"),
     request<{ items: AdminProduct[] }>("/admin/products"),
     request<{ items: AdminCategory[] }>("/admin/categories"),
-  ]).then(([agencyResult, creatorResult, assetResult, productResult, categoryResult]) => {
-    setAgencies(agencyResult.items); setCreators(creatorResult.items); setAssets(assetResult.items); setProducts(productResult.items); setCategories(categoryResult.items);
+  ]).then(([creatorResult, assetResult, productResult, categoryResult]) => {
+    setCreators(creatorResult.items); setAssets(assetResult.items); setProducts(productResult.items); setCategories(categoryResult.items);
   }).catch((error) => setNotice(message(error)));
   useEffect(() => { if (token) { setToken(token); load(); } }, [token]);
   const login = async (event: FormEvent<HTMLFormElement>) => {
@@ -448,14 +446,14 @@ function Admin() {
     try { await request(path, { method, body: JSON.stringify(build(new FormData(event.currentTarget))) }); event.currentTarget.reset(); setNotice(success); load(); }
     catch (error) { setNotice(message(error, t.saveFailed)); }
   };
-  const upload = async (event: FormEvent<HTMLFormElement>, agencyId?: string) => {
+  const upload = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget); const file = data.get("file");
     if (!(file instanceof File)) return;
     if (file.size > 50_000_000) { setNotice(t.mediaLimit); return; }
     const checksum = [...new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer()))].map((value) => value.toString(16).padStart(2, "0")).join("");
     try {
-      const result = await request<{ asset: { _id: string }; uploadUrl: string }>("/admin/assets/upload-url", { method: "POST", body: JSON.stringify({ agencyId: agencyId ?? data.get("agencyId"), purpose: data.get("purpose"), fileName: file.name, mimeType: file.type || "application/octet-stream", bytes: file.size, sha256: checksum }) });
+      const result = await request<{ asset: { _id: string }; uploadUrl: string }>("/admin/assets/upload-url", { method: "POST", body: JSON.stringify({ purpose: data.get("purpose"), fileName: file.name, mimeType: file.type || "application/octet-stream", bytes: file.size, sha256: checksum }) });
       await fetch(result.uploadUrl, { method: "PUT", headers: { "content-type": file.type || "application/octet-stream" }, body: file });
       await request(`/admin/assets/${result.asset._id}/complete`, { method: "POST" });
       event.currentTarget.reset(); setNotice(t.mediaUploaded); load();
@@ -467,23 +465,23 @@ function Admin() {
 
   if (!token) return <main className="admin admin-gate" lang={language} dir={direction}><LanguageSwitch language={language} setLanguage={setLanguage} title={t.language} /><p className="brand-lockup"><img src="/vesper.svg" alt="" /><span className="brand-name">Vesper</span></p><h1>{t.signIn}</h1>{notice && <p role="alert" className="notice">{notice}</p>}<form onSubmit={(event) => void login(event)}><label>{t.password}<input name="password" type="password" placeholder={t.password} autoComplete="current-password" required /></label><button>{t.signIn}</button></form></main>;
 
-  const currentAssets = selectedCreator ? assets.filter((asset) => asset.agencyId === selectedCreator.agencyId && asset.status === "ready") : [];
+  const currentAssets = selectedCreator ? assets.filter((asset) => asset.status === "ready") : [];
   const currentProducts = selectedCreator ? products.filter((product) => product.creatorId === selectedCreator._id) : [];
   return <main className="admin" lang={language} dir={direction}>
     <header className="admin-header"><div><p className="brand-lockup"><img src="/vesper.svg" alt="" /><span className="brand-name">Vesper</span></p><h1>{t.adminTitle}</h1></div><LanguageSwitch language={language} setLanguage={setLanguage} title={t.language} /></header>
     <nav className="admin-nav" aria-label={t.adminTitle}>
       <Link to="/admin" aria-current={isCatalogue || creatorId ? "page" : undefined}>{t.catalogue}</Link>
+      <NavLink to="/admin/categories">{t.categories}</NavLink>
       <NavLink to="/admin/orders">{t.orders}</NavLink>
       <NavLink to="/admin/revenue">{t.revenue}</NavLink>
-      <a href="#setup">{t.setup}</a>
       <button type="button" className="plain-button" onClick={signOut}>{t.signOut}</button>
     </nav>
     {notice && <p role="status" className="notice">{notice}</p>}
     {isOrders && <AdminOrders t={t} />}
     {isRevenue && <AdminRevenue t={t} />}
-    {creatorId ? selectedCreator ? <AdminCreatorContent creator={selectedCreator} products={currentProducts} assets={currentAssets} categories={categories.filter((category) => category.agencyId === selectedCreator.agencyId)} t={t} selectedAssetIds={selectedAssetIds} setSelectedAssetIds={setSelectedAssetIds} showDialog={showContentDialog} openDialog={() => setShowContentDialog(true)} closeDialog={() => setShowContentDialog(false)} upload={upload} submit={submit} publish={publishProduct} load={load} /> : <p className="empty">{t.loading}</p> : null}
-    {isCatalogue && <AdminCatalogue creators={creators} agencies={agencies} t={t} showDialog={showCreatorDialog} openDialog={() => setShowCreatorDialog(true)} closeDialog={() => setShowCreatorDialog(false)} submit={submit} publish={publishCreator} />}
-    {isCatalogue && <AdminSetup agencies={agencies} categories={categories} t={t} submit={submit} load={load} />}
+    {creatorId ? selectedCreator ? <AdminCreatorContent creator={selectedCreator} products={currentProducts} assets={currentAssets} categories={categories} t={t} selectedAssetIds={selectedAssetIds} setSelectedAssetIds={setSelectedAssetIds} showDialog={showContentDialog} openDialog={() => setShowContentDialog(true)} closeDialog={() => setShowContentDialog(false)} upload={upload} submit={submit} publish={publishProduct} load={load} /> : <p className="empty">{t.loading}</p> : null}
+    {isCatalogue && <AdminCatalogue creators={creators} t={t} showDialog={showCreatorDialog} openDialog={() => setShowCreatorDialog(true)} closeDialog={() => setShowCreatorDialog(false)} submit={submit} publish={publishCreator} />}
+    {isCategories && <AdminCategories categories={categories} t={t} submit={submit} load={load} />}
   </main>;
 }
 
@@ -491,21 +489,19 @@ function LanguageSwitch({ language, setLanguage, title }: { language: AdminLangu
   return <label className="language-switch">{title}<select value={language} onChange={(event) => setLanguage(adminLanguage(event.target.value))}><option value="en">English</option><option value="he">עברית</option></select></label>;
 }
 
-function AdminCatalogue({ creators, agencies, t, showDialog, openDialog, closeDialog, submit, publish }: { creators: AdminCreator[]; agencies: AdminAgency[]; t: typeof adminCopy.en; showDialog: boolean; openDialog: () => void; closeDialog: () => void; submit: AdminSubmit; publish: (id: string) => void }) {
+function AdminCatalogue({ creators, t, showDialog, openDialog, closeDialog, submit, publish }: { creators: AdminCreator[]; t: typeof adminCopy.en; showDialog: boolean; openDialog: () => void; closeDialog: () => void; submit: AdminSubmit; publish: (id: string) => void }) {
   return <><section className="admin-intro"><h2>{t.creatorCatalogue}</h2><p>{t.catalogueHelp}</p></section><CreatorGrid creators={creators.map((creator) => ({ key: creator._id, name: creator.displayName, bio: creator.bio || "?", status: creator.status === "published" ? t.published : t.draft, to: `/admin/creators/${creator._id}` }))} addCard={<PlusCard label={t.addCreator} onClick={openDialog} />} empty={<article className="creator-card creator-empty-card"><h2>{t.creatorEmpty}</h2></article>} />
-    {showDialog && <Dialog title={t.newCreator} close={closeDialog} closeLabel={t.close}><NewCreatorForm agencies={agencies} t={t} submit={submit} closeDialog={closeDialog} /></Dialog>}
+    {showDialog && <Dialog title={t.newCreator} close={closeDialog} closeLabel={t.close}><NewCreatorForm t={t} submit={submit} closeDialog={closeDialog} /></Dialog>}
     {creators.some((creator) => creator.status !== "published") && <section><h2>{t.draft}</h2>{creators.filter((creator) => creator.status !== "published").map((creator) => <p key={creator._id}>{creator.displayName} <button type="button" onClick={() => void publish(creator._id)}>{t.publish}</button></p>)}</section>}</>;
 }
 
-function NewCreatorForm({ agencies, t, submit, closeDialog }: { agencies: AdminAgency[]; t: typeof adminCopy.en; submit: AdminSubmit; closeDialog: () => void }) {
+function NewCreatorForm({ t, submit, closeDialog }: { t: typeof adminCopy.en; submit: AdminSubmit; closeDialog: () => void }) {
   return <form onSubmit={(event) => void submit(event, "/admin/creators", (data) => ({
-    agencyId: data.get("agencyId"),
     displayName: data.get("displayName"),
     slug: data.get("slug"),
     bio: data.get("bio"),
     rightsAttestation: { affirmedBy: data.get("affirmedBy") },
   }), t.creatorCreated).then(closeDialog)}>
-    <label>{t.agency}<select name="agencyId" required><option value="">{t.chooseAgency}</option>{agencies.map((a) => <option value={a._id} key={a._id}>{a.name}</option>)}</select></label>
     <label>{t.creatorName}<input name="displayName" required /></label>
     <label>{t.creatorSlug}<input name="slug" pattern="[a-z0-9-]+" placeholder="creator-slug" required /></label>
     <label>{t.creatorBio}<textarea name="bio" /></label>
@@ -548,7 +544,7 @@ function DeliveryAssetCard({ asset, selected, onToggle, t }: { asset: AdminAsset
   </label>;
 }
 
-function AdminCreatorContent({ creator, products, assets, categories, t, selectedAssetIds, setSelectedAssetIds, showDialog, openDialog, closeDialog, upload, submit, publish, load }: { creator: AdminCreator; products: AdminProduct[]; assets: AdminAsset[]; categories: AdminCategory[]; t: typeof adminCopy.en; selectedAssetIds: string[]; setSelectedAssetIds: (ids: string[]) => void; showDialog: boolean; openDialog: () => void; closeDialog: () => void; upload: (event: FormEvent<HTMLFormElement>, agencyId?: string) => Promise<void>; submit: AdminSubmit; publish: (id: string) => void; load: () => void }) {
+function AdminCreatorContent({ creator, products, assets, categories, t, selectedAssetIds, setSelectedAssetIds, showDialog, openDialog, closeDialog, upload, submit, publish, load }: { creator: AdminCreator; products: AdminProduct[]; assets: AdminAsset[]; categories: AdminCategory[]; t: typeof adminCopy.en; selectedAssetIds: string[]; setSelectedAssetIds: (ids: string[]) => void; showDialog: boolean; openDialog: () => void; closeDialog: () => void; upload: (event: FormEvent<HTMLFormElement>) => Promise<void>; submit: AdminSubmit; publish: (id: string) => void; load: () => void }) {
   const navigate = useNavigate();
   const [editing, setEditing] = useState<AdminProduct | null>(null);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
@@ -567,12 +563,12 @@ function AdminCreatorContent({ creator, products, assets, categories, t, selecte
   };
   return <><nav className="admin-content-nav"><button type="button" className="admin-back-button" onClick={() => navigate("/admin")}>← {t.backToCatalogue}</button></nav><section className="admin-intro"><p className="eyebrow">{t.content}</p><h2>{creator.displayName}</h2><p>{t.contentHelp}</p></section>
     <ContentGrid className="admin-content-grid" items={products} addCard={<PlusCard label={t.addContent} onClick={openNew} />} empty={<p className="empty">{t.contentEmpty}</p>} renderCopy={(product) => <><h2>{product.title}</h2><p>{product.status === "published" ? t.published : t.draft}</p><button type="button" onClick={() => openEdit(product as AdminProduct)}>{t.edit}</button>{product.status !== "published" && <button type="button" onClick={() => void publish(product._id)}>{t.publish}</button>}<button type="button" className="plain-button" onClick={() => void archive(product._id)}>{t.archive}</button></>} />
-    {showDialog && <Dialog title={editing ? t.editContent : t.newContent} close={closeDialog} closeLabel={t.close}><form onSubmit={(event) => void submit(event, editing ? `/admin/products/${editing._id}` : "/admin/products", (data) => ({ ...(editing ? {} : { agencyId: creator.agencyId, creatorId: creator._id }), title: data.get("title"), description: data.get("description"), deliveryMessage: data.get("deliveryMessage"), categoryIds: selectedCategoryIds, previewMode: data.get("previewMode"), previewAssetId: data.get("previewMode") === "none" ? null : previewAssetId || undefined, mediaAssetIds: selectedAssetIds, amountMinor: euroToMinor(data.get("price")), currency: "EUR" }), editing ? t.saved : t.productCreated, editing ? "PATCH" : "POST").then(closeDialog)}><label>{t.productTitle}<input name="title" defaultValue={editing?.title} required /></label><label>{t.deliveryMessage}<textarea name="deliveryMessage" defaultValue={editing?.deliveryMessage} maxLength={1000} /></label><label>{t.description}<textarea name="description" defaultValue={editing?.description} /></label><label>{t.price}<input name="price" type="text" inputMode="decimal" pattern="\d+(\.\d{1,2})?" defaultValue={editing ? (editing.amountMinor / 100).toFixed(2) : ""} required /></label><label>{t.preview}<select name="previewMode" defaultValue={editing?.previewMode ?? "blurred"}><option value="none">{t.noPreviewOption}</option><option value="blurred">{t.blurredPreviewOption}</option><option value="visible">{t.visiblePreviewOption}</option></select></label><AdminAssetPicker assets={assets} selectedId={previewAssetId} onChange={setPreviewAssetId} t={t} /><fieldset><legend>{t.categories}</legend>{categories.filter((category) => category.status === "active").map((category) => <label key={category._id}><input type="checkbox" checked={selectedCategoryIds.includes(category._id)} onChange={(event) => setSelectedCategoryIds(event.target.checked ? [...selectedCategoryIds, category._id] : selectedCategoryIds.filter((id) => id !== category._id))} /> {category.name}</label>)}</fieldset><fieldset><legend>{t.privateFiles}</legend><div className="delivery-asset-grid">{visibleDeliveryAssets.map((asset) => <DeliveryAssetCard key={asset._id} asset={asset} selected={selectedAssetIds.includes(asset._id)} onToggle={() => setSelectedAssetIds(selectedAssetIds.includes(asset._id) ? selectedAssetIds.filter((id) => id !== asset._id) : [...selectedAssetIds, asset._id])} t={t} />)}</div>{!deliveryAssets.length && <p className="help">{t.noMedia}</p>}<div className="asset-pagination"><span>{selectedAssetIds.length} {t.selected}</span><button type="button" className="plain-button" disabled={deliveryPage <= 1} onClick={() => setDeliveryPage((page) => page - 1)}>{t.previousPage}</button><span>{deliveryPage} / {pageCount}</span><button type="button" className="plain-button" disabled={deliveryPage >= pageCount} onClick={() => setDeliveryPage((page) => page + 1)}>{t.nextPage}</button></div></fieldset><button className="dialog-submit" disabled={!selectedAssetIds.length}>{editing ? t.save : t.createProduct}</button></form><section className="upload-panel"><h3>{t.uploadMedia}</h3><form onSubmit={(event) => void upload(event, creator.agencyId)}><label>{t.uploadPurpose}<select name="purpose" defaultValue="delivery"><option value="delivery">{t.deliveryFile}</option><option value="preview">{t.previewFile}</option></select></label><label>{t.chooseFile}<input name="file" type="file" accept="image/*,video/*,audio/*,application/*" required /></label><button>{t.upload}</button></form><p className="help">{t.uploadHelp}</p></section></Dialog>}</>;
+    {showDialog && <Dialog title={editing ? t.editContent : t.newContent} close={closeDialog} closeLabel={t.close}><form onSubmit={(event) => void submit(event, editing ? `/admin/products/${editing._id}` : "/admin/products", (data) => ({ ...(editing ? {} : { creatorId: creator._id }), title: data.get("title"), description: data.get("description"), deliveryMessage: data.get("deliveryMessage"), categoryIds: selectedCategoryIds, previewMode: data.get("previewMode"), previewAssetId: data.get("previewMode") === "none" ? null : previewAssetId || undefined, mediaAssetIds: selectedAssetIds, amountMinor: euroToMinor(data.get("price")), currency: "EUR" }), editing ? t.saved : t.productCreated, editing ? "PATCH" : "POST").then(closeDialog)}><label>{t.productTitle}<input name="title" defaultValue={editing?.title} required /></label><label>{t.deliveryMessage}<textarea name="deliveryMessage" defaultValue={editing?.deliveryMessage} maxLength={1000} /></label><label>{t.description}<textarea name="description" defaultValue={editing?.description} /></label><label>{t.price}<input name="price" type="text" inputMode="decimal" pattern="\d+(\.\d{1,2})?" defaultValue={editing ? (editing.amountMinor / 100).toFixed(2) : ""} required /></label><label>{t.preview}<select name="previewMode" defaultValue={editing?.previewMode ?? "blurred"}><option value="none">{t.noPreviewOption}</option><option value="blurred">{t.blurredPreviewOption}</option><option value="visible">{t.visiblePreviewOption}</option></select></label><AdminAssetPicker assets={assets} selectedId={previewAssetId} onChange={setPreviewAssetId} t={t} /><fieldset><legend>{t.categories}</legend>{categories.filter((category) => category.status === "active").map((category) => <label key={category._id}><input type="checkbox" checked={selectedCategoryIds.includes(category._id)} onChange={(event) => setSelectedCategoryIds(event.target.checked ? [...selectedCategoryIds, category._id] : selectedCategoryIds.filter((id) => id !== category._id))} /> {category.name}</label>)}</fieldset><fieldset><legend>{t.privateFiles}</legend><div className="delivery-asset-grid">{visibleDeliveryAssets.map((asset) => <DeliveryAssetCard key={asset._id} asset={asset} selected={selectedAssetIds.includes(asset._id)} onToggle={() => setSelectedAssetIds(selectedAssetIds.includes(asset._id) ? selectedAssetIds.filter((id) => id !== asset._id) : [...selectedAssetIds, asset._id])} t={t} />)}</div>{!deliveryAssets.length && <p className="help">{t.noMedia}</p>}<div className="asset-pagination"><span>{selectedAssetIds.length} {t.selected}</span><button type="button" className="plain-button" disabled={deliveryPage <= 1} onClick={() => setDeliveryPage((page) => page - 1)}>{t.previousPage}</button><span>{deliveryPage} / {pageCount}</span><button type="button" className="plain-button" disabled={deliveryPage >= pageCount} onClick={() => setDeliveryPage((page) => page + 1)}>{t.nextPage}</button></div></fieldset><button className="dialog-submit" disabled={!selectedAssetIds.length}>{editing ? t.save : t.createProduct}</button></form><section className="upload-panel"><h3>{t.uploadMedia}</h3><form onSubmit={(event) => void upload(event)}><label>{t.uploadPurpose}<select name="purpose" defaultValue="delivery"><option value="delivery">{t.deliveryFile}</option><option value="preview">{t.previewFile}</option></select></label><label>{t.chooseFile}<input name="file" type="file" accept="image/*,video/*,audio/*,application/*" required /></label><button>{t.upload}</button></form><p className="help">{t.uploadHelp}</p></section></Dialog>}</>;
 }
 
-function AdminSetup({ agencies, categories, t, submit, load }: { agencies: AdminAgency[]; categories: AdminCategory[]; t: typeof adminCopy.en; submit: AdminSubmit; load: () => void }) {
+function AdminCategories({ categories, t, submit, load }: { categories: AdminCategory[]; t: typeof adminCopy.en; submit: AdminSubmit; load: () => void }) {
   const archiveCategory = async (id: string) => { await request(`/admin/categories/${id}`, { method: "DELETE" }); load(); };
-  return <section id="setup" className="setup-panel"><h2>{t.setup}</h2><p className="help">{t.setupEmpty}</p><article className="warning"><h3>{t.attributionTitle}</h3><p>{t.attributionHelp}</p><p>{t.secretWarning}</p></article><div className="setup-grid"><section><h3>{t.agency}</h3><form onSubmit={(event) => void submit(event, "/admin/agencies", (data) => ({ name: data.get("name") }))}><label>{t.agencyName}<input name="name" required /></label><button>{t.createAgency}</button></form>{agencies.length ? agencies.map((agency) => <p key={agency._id}>{agency.name}</p>) : <p className="empty">{t.agencyEmpty}</p>}</section><section><h3>{t.categories}</h3><form onSubmit={(event) => void submit(event, "/admin/categories", (data) => ({ agencyId: data.get("agencyId"), name: data.get("name"), slug: data.get("slug") }))}><label>{t.agency}<select name="agencyId" required><option value="">{t.chooseAgency}</option>{agencies.map((agency) => <option value={agency._id} key={agency._id}>{agency.name}</option>)}</select></label><label>{t.categoryName}<input name="name" required /></label><label>{t.categorySlug}<input name="slug" pattern="[a-z0-9-]+" required /></label><button>{t.createCategory}</button></form>{categories.map((category) => <p key={category._id}>{category.name} ({category.status}) {category.status === "active" && <button type="button" className="plain-button" onClick={() => void archiveCategory(category._id)}>{t.archive}</button>}</p>)}</section></div></section>;
+  return <section className="category-manager"><section className="admin-intro"><h2>{t.categories}</h2><p>{t.categoryHelp}</p></section><div className="setup-grid"><section><h3>{t.createCategory}</h3><form onSubmit={(event) => void submit(event, "/admin/categories", (data) => ({ name: data.get("name"), slug: data.get("slug") }))}><label>{t.categoryName}<input name="name" required /></label><label>{t.categorySlug}<input name="slug" pattern="[a-z0-9-]+" required /></label><button>{t.createCategory}</button></form></section><section><h3>{t.categories}</h3>{categories.length ? <ul className="category-list">{categories.map((category) => <li key={category._id}><span>{category.name}</span><small>{category.slug}</small>{category.status === "active" ? <button type="button" className="plain-button" onClick={() => void archiveCategory(category._id)}>{t.archive}</button> : <span className="status-badge">{t.archive}</span>}</li>)}</ul> : <p className="empty">{t.categoryEmpty}</p>}</section></div></section>;
 }
 
 function Marketplace() {
@@ -592,6 +588,7 @@ export function App() {
   return <Routes>
     <Route path="/admin" element={<Admin />} />
     <Route path="/admin/creators/:creatorId" element={<Admin />} />
+    <Route path="/admin/categories" element={<Admin />} />
     <Route path="/admin/orders" element={<Admin />} />
     <Route path="/admin/revenue" element={<Admin />} />
     <Route path="*" element={<Marketplace />} />

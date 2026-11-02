@@ -108,7 +108,7 @@ async function main() {
     // 1. Copy the video file to marketplace MinIO (if still a Telescope key).
     if (isTelescopeKey) {
       const safeFileName: string = deliveryAsset.fileName.replace(/[^A-Za-z0-9._-]/g, "_");
-      const marketplaceDeliveryKey = `agency/${product.agencyId}/assets/${deliveryAssetId}/${safeFileName}`;
+      const marketplaceDeliveryKey = `assets/${deliveryAssetId}/${safeFileName}`;
       try {
         const bytes = await copyObject(currentKey, marketplaceDeliveryKey, deliveryAsset.mimeType);
         await MediaAsset.updateOne({ _id: deliveryAssetId }, { $set: { storageKey: marketplaceDeliveryKey, bytes } });
@@ -138,7 +138,6 @@ async function main() {
 
     const previewFileName = thumbKey.split("/").pop() || "thumb.jpg";
     const previewAsset = await MediaAsset.create({
-      agencyId: product.agencyId,
       storageKey: "pending",
       fileName: previewFileName,
       mimeType: "image/jpeg",
@@ -147,7 +146,7 @@ async function main() {
       purpose: "preview",
       status: "ready",
     });
-    const marketplacePreviewKey = `agency/${product.agencyId}/assets/${previewAsset._id}/${previewFileName}`;
+    const marketplacePreviewKey = `assets/${previewAsset._id}/${previewFileName}`;
     try {
       const bytes = await copyObject(thumbKey, marketplacePreviewKey, "image/jpeg");
       await MediaAsset.updateOne({ _id: previewAsset._id }, { $set: { storageKey: marketplacePreviewKey, bytes } });
@@ -161,8 +160,7 @@ async function main() {
 
       // Fallback: create a preview asset pointing to the video file itself.
       const videoPreviewAsset = await MediaAsset.create({
-        agencyId: product.agencyId,
-        storageKey: `agency/${product.agencyId}/assets/${deliveryAssetId}/${deliveryAsset.fileName.replace(/[^A-Za-z0-9._-]/g, "_")}`,
+        storageKey: `assets/${deliveryAssetId}/${deliveryAsset.fileName.replace(/[^A-Za-z0-9._-]/g, "_")}`,
         fileName: deliveryAsset.fileName,
         mimeType: deliveryAsset.mimeType,
         bytes: deliveryAsset.bytes,
