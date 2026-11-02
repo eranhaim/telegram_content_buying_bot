@@ -321,11 +321,8 @@ function AdminRevenue({ t }: { t: typeof adminCopy.en }) {
     <section className="admin-intro"><h2>{t.revenueTitle}</h2></section>
     <div className="revenue-cards">
       <div className="revenue-card"><div className="revenue-value ltr-value" dir="ltr">{money(data.total.grossMinor, "EUR")}</div><div className="revenue-label">{t.totalRevenue}</div></div>
-      <div className="revenue-card"><div className="revenue-value ltr-value" dir="ltr">{money(data.today.grossMinor, "EUR")}</div><div className="revenue-label">{t.todayRevenue} ({data.today.count})</div></div>
-      <div className="revenue-card"><div className="revenue-value ltr-value" dir="ltr">{money(data.month.grossMinor, "EUR")}</div><div className="revenue-label">{t.monthRevenue} ({data.month.count})</div></div>
+      <div className="revenue-card"><div className="revenue-value ltr-value" dir="ltr">{money(data.month.grossMinor, "EUR")}</div><div className="revenue-label">{t.monthRevenue}</div></div>
       <div className="revenue-card"><div className="revenue-value">{data.total.count}</div><div className="revenue-label">{t.paidOrders}</div></div>
-      <div className="revenue-card"><div className="revenue-value">{data.statusCounts.pending ?? 0}</div><div className="revenue-label">{t.pendingOrders}</div></div>
-      <div className="revenue-card"><div className="revenue-value">{data.statusCounts.expired ?? 0}</div><div className="revenue-label">{t.expiredOrders}</div></div>
     </div>
     <h2 className="section-title">{t.creatorRevenue}</h2>
     {data.creators.length ? <div className="admin-table-wrap"><table className="admin-table">
@@ -368,6 +365,7 @@ function Admin() {
     document.documentElement.lang = language;
     document.documentElement.dir = direction;
   }, [language, direction]);
+  useEffect(() => { setNotice(""); }, [location.pathname]);
   const message = (error: unknown, fallback = t.requestFailed) => {
     const code = error instanceof Error ? error.message : "";
     if (code === "invalid_credentials") return t.invalidCredentials;
@@ -391,12 +389,14 @@ function Admin() {
   };
   const submit = async (event: FormEvent<HTMLFormElement>, path: string, build: (data: FormData) => unknown, success = t.saved, method: "POST" | "PATCH" = "POST") => {
     event.preventDefault();
-    try { await request(path, { method, body: JSON.stringify(build(new FormData(event.currentTarget))) }); event.currentTarget.reset(); setNotice(success); load(); }
-    catch (error) { setNotice(message(error, t.saveFailed)); }
+    const form = event.currentTarget;
+    try { await request(path, { method, body: JSON.stringify(build(new FormData(form))) }); form.reset(); setNotice(success); load(); return true; }
+    catch (error) { setNotice(message(error, t.saveFailed)); return false; }
   };
   const upload = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const data = new FormData(event.currentTarget); const file = data.get("file");
+    const form = event.currentTarget;
+    const data = new FormData(form); const file = data.get("file");
     if (!(file instanceof File)) return;
     if (file.size > 50_000_000) { setNotice(t.mediaLimit); return; }
     const checksum = [...new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer()))].map((value) => value.toString(16).padStart(2, "0")).join("");
@@ -404,7 +404,7 @@ function Admin() {
       const result = await request<{ asset: { _id: string }; uploadUrl: string }>("/admin/assets/upload-url", { method: "POST", body: JSON.stringify({ purpose: data.get("purpose"), fileName: file.name, mimeType: file.type || "application/octet-stream", bytes: file.size, sha256: checksum }) });
       await fetch(result.uploadUrl, { method: "PUT", headers: { "content-type": file.type || "application/octet-stream" }, body: file });
       await request(`/admin/assets/${result.asset._id}/complete`, { method: "POST" });
-      event.currentTarget.reset(); setNotice(t.mediaUploaded); load();
+      form.reset(); setNotice(t.mediaUploaded); load();
     } catch (error) { setNotice(message(error, t.uploadFailed)); }
   };
   const publishCreator = async (id: string) => { try { await request(`/admin/creators/${id}`, { method: "PATCH", body: JSON.stringify({ status: "published" }) }); setNotice(t.published); load(); } catch (error) { setNotice(message(error, t.saveFailed)); } };
@@ -449,7 +449,7 @@ function NewCreatorForm({ t, submit, closeDialog }: { t: typeof adminCopy.en; su
     slug: data.get("slug"),
     bio: data.get("bio"),
     rightsAttestation: { affirmedBy: data.get("affirmedBy") },
-  }), t.creatorCreated).then(closeDialog)}>
+  }), t.creatorCreated).then((saved) => { if (saved) closeDialog(); })}>
     <label>{t.creatorName}<input name="displayName" required /></label>
     <label>{t.creatorSlug}<input name="slug" pattern="[a-z0-9-]+" placeholder="creator-slug" required /></label>
     <label>{t.creatorBio}<textarea name="bio" /></label>
@@ -458,7 +458,7 @@ function NewCreatorForm({ t, submit, closeDialog }: { t: typeof adminCopy.en; su
   </form>;
 }
 
-type AdminSubmit = (event: FormEvent<HTMLFormElement>, path: string, build: (data: FormData) => unknown, success?: string, method?: "POST" | "PATCH") => Promise<void>;
+type AdminSubmit = (event: FormEvent<HTMLFormElement>, path: string, build: (data: FormData) => unknown, success?: string, method?: "POST" | "PATCH") => Promise<boolean>;
 
 function AdminAssetVisual({ asset, unavailable }: { asset: AdminAsset; unavailable: string }) {
   if (!asset.url) return <div className="asset-visual-fallback">{unavailable}</div>;
@@ -511,7 +511,7 @@ function AdminCreatorContent({ creator, products, assets, categories, t, selecte
   };
   return <><nav className="admin-content-nav"><button type="button" className="admin-back-button" onClick={() => navigate("/admin")}>← {t.backToCatalogue}</button></nav><section className="admin-intro"><p className="eyebrow">{t.content}</p><h2>{creator.displayName}</h2><p>{t.contentHelp}</p></section>
     <ContentGrid className="admin-content-grid" items={products} addCard={<PlusCard label={t.addContent} onClick={openNew} />} empty={<p className="empty">{t.contentEmpty}</p>} renderCopy={(product) => <><h2>{product.title}</h2><p>{product.status === "published" ? t.published : t.draft}</p><button type="button" onClick={() => openEdit(product as AdminProduct)}>{t.edit}</button>{product.status !== "published" && <button type="button" onClick={() => void publish(product._id)}>{t.publish}</button>}<button type="button" className="plain-button" onClick={() => void archive(product._id)}>{t.archive}</button></>} />
-    {showDialog && <Dialog title={editing ? t.editContent : t.newContent} close={closeDialog} closeLabel={t.close}><form onSubmit={(event) => void submit(event, editing ? `/admin/products/${editing._id}` : "/admin/products", (data) => ({ ...(editing ? {} : { creatorId: creator._id }), title: data.get("title"), description: data.get("description"), deliveryMessage: data.get("deliveryMessage"), categoryIds: selectedCategoryIds, previewMode: data.get("previewMode"), previewAssetId: data.get("previewMode") === "none" ? null : previewAssetId || undefined, mediaAssetIds: selectedAssetIds, amountMinor: euroToMinor(data.get("price")), currency: "EUR" }), editing ? t.saved : t.productCreated, editing ? "PATCH" : "POST").then(closeDialog)}><label>{t.productTitle}<input name="title" defaultValue={editing?.title} required /></label><label>{t.deliveryMessage}<textarea name="deliveryMessage" defaultValue={editing?.deliveryMessage} maxLength={1000} /></label><label>{t.description}<textarea name="description" defaultValue={editing?.description} /></label><label>{t.price}<input name="price" type="text" inputMode="decimal" pattern="\d+(\.\d{1,2})?" defaultValue={editing ? (editing.amountMinor / 100).toFixed(2) : ""} required /></label><label>{t.preview}<select name="previewMode" defaultValue={editing?.previewMode ?? "blurred"}><option value="none">{t.noPreviewOption}</option><option value="blurred">{t.blurredPreviewOption}</option><option value="visible">{t.visiblePreviewOption}</option></select></label><AdminAssetPicker assets={assets} selectedId={previewAssetId} onChange={setPreviewAssetId} t={t} /><fieldset><legend>{t.categories}</legend>{categories.filter((category) => category.status === "active").map((category) => <label key={category._id}><input type="checkbox" checked={selectedCategoryIds.includes(category._id)} onChange={(event) => setSelectedCategoryIds(event.target.checked ? [...selectedCategoryIds, category._id] : selectedCategoryIds.filter((id) => id !== category._id))} /> {category.name}</label>)}</fieldset><fieldset><legend>{t.privateFiles}</legend><div className="delivery-asset-grid">{visibleDeliveryAssets.map((asset) => <DeliveryAssetCard key={asset._id} asset={asset} selected={selectedAssetIds.includes(asset._id)} onToggle={() => setSelectedAssetIds(selectedAssetIds.includes(asset._id) ? selectedAssetIds.filter((id) => id !== asset._id) : [...selectedAssetIds, asset._id])} t={t} />)}</div>{!deliveryAssets.length && <p className="help">{t.noMedia}</p>}<div className="asset-pagination"><span>{selectedAssetIds.length} {t.selected}</span><button type="button" className="plain-button" disabled={deliveryPage <= 1} onClick={() => setDeliveryPage((page) => page - 1)}>{t.previousPage}</button><span>{deliveryPage} / {pageCount}</span><button type="button" className="plain-button" disabled={deliveryPage >= pageCount} onClick={() => setDeliveryPage((page) => page + 1)}>{t.nextPage}</button></div></fieldset><button className="dialog-submit" disabled={!selectedAssetIds.length}>{editing ? t.save : t.createProduct}</button></form><section className="upload-panel"><h3>{t.uploadMedia}</h3><form onSubmit={(event) => void upload(event)}><label>{t.uploadPurpose}<select name="purpose" defaultValue="delivery"><option value="delivery">{t.deliveryFile}</option><option value="preview">{t.previewFile}</option></select></label><label>{t.chooseFile}<input name="file" type="file" accept="image/*,video/*,audio/*,application/*" required /></label><button>{t.upload}</button></form><p className="help">{t.uploadHelp}</p></section></Dialog>}</>;
+    {showDialog && <Dialog title={editing ? t.editContent : t.newContent} close={closeDialog} closeLabel={t.close}><form onSubmit={(event) => void submit(event, editing ? `/admin/products/${editing._id}` : "/admin/products", (data) => ({ ...(editing ? {} : { creatorId: creator._id }), title: data.get("title"), description: data.get("description"), deliveryMessage: data.get("deliveryMessage"), categoryIds: selectedCategoryIds, previewMode: data.get("previewMode"), previewAssetId: data.get("previewMode") === "none" ? null : previewAssetId || undefined, mediaAssetIds: selectedAssetIds, amountMinor: euroToMinor(data.get("price")), currency: "EUR" }), editing ? t.saved : t.productCreated, editing ? "PATCH" : "POST").then((saved) => { if (saved) closeDialog(); })}><label>{t.productTitle}<input name="title" defaultValue={editing?.title} required /></label><label>{t.deliveryMessage}<textarea name="deliveryMessage" defaultValue={editing?.deliveryMessage} maxLength={1000} /></label><label>{t.description}<textarea name="description" defaultValue={editing?.description} /></label><label>{t.price}<input name="price" type="text" inputMode="decimal" pattern="\d+(\.\d{1,2})?" defaultValue={editing ? (editing.amountMinor / 100).toFixed(2) : ""} required /></label><label>{t.preview}<select name="previewMode" defaultValue={editing?.previewMode ?? "blurred"}><option value="none">{t.noPreviewOption}</option><option value="blurred">{t.blurredPreviewOption}</option><option value="visible">{t.visiblePreviewOption}</option></select></label><AdminAssetPicker assets={assets} selectedId={previewAssetId} onChange={setPreviewAssetId} t={t} /><fieldset><legend>{t.categories}</legend>{categories.filter((category) => category.status === "active").map((category) => <label key={category._id}><input type="checkbox" checked={selectedCategoryIds.includes(category._id)} onChange={(event) => setSelectedCategoryIds(event.target.checked ? [...selectedCategoryIds, category._id] : selectedCategoryIds.filter((id) => id !== category._id))} /> {category.name}</label>)}</fieldset><fieldset><legend>{t.privateFiles}</legend><div className="delivery-asset-grid">{visibleDeliveryAssets.map((asset) => <DeliveryAssetCard key={asset._id} asset={asset} selected={selectedAssetIds.includes(asset._id)} onToggle={() => setSelectedAssetIds(selectedAssetIds.includes(asset._id) ? selectedAssetIds.filter((id) => id !== asset._id) : [...selectedAssetIds, asset._id])} t={t} />)}</div>{!deliveryAssets.length && <p className="help">{t.noMedia}</p>}<div className="asset-pagination"><span>{selectedAssetIds.length} {t.selected}</span><button type="button" className="plain-button" disabled={deliveryPage <= 1} onClick={() => setDeliveryPage((page) => page - 1)}>{t.previousPage}</button><span>{deliveryPage} / {pageCount}</span><button type="button" className="plain-button" disabled={deliveryPage >= pageCount} onClick={() => setDeliveryPage((page) => page + 1)}>{t.nextPage}</button></div></fieldset><button className="dialog-submit" disabled={!selectedAssetIds.length}>{editing ? t.save : t.createProduct}</button></form><section className="upload-panel"><h3>{t.uploadMedia}</h3><form onSubmit={(event) => void upload(event)}><label>{t.uploadPurpose}<select name="purpose" defaultValue="delivery"><option value="delivery">{t.deliveryFile}</option><option value="preview">{t.previewFile}</option></select></label><label>{t.chooseFile}<input name="file" type="file" accept="image/*,video/*,audio/*,application/*" required /></label><button>{t.upload}</button></form><p className="help">{t.uploadHelp}</p></section></Dialog>}</>;
 }
 
 function AdminCategories({ categories, t, submit, load }: { categories: AdminCategory[]; t: typeof adminCopy.en; submit: AdminSubmit; load: () => void }) {
