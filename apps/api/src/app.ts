@@ -6,7 +6,7 @@ import { BROWSER_CUSTOMER_LABEL, isBrowserCustomer, issueAdminSession, issueBrow
 import { customerLocales } from "./customer-locale.js";
 import { AuditEvent, Cart, Category, Creator, Delivery, Entitlement, MediaAsset, Order, Product, TelegramUser, WebhookEvent } from "./models.js";
 import { applyMantapayPayment, createOrderForCart } from "./orders.js";
-import { parseWebhook, verifyWebhookSignature } from "./mantapay.js";
+import { createCheckoutForOrder, getStatusByOrder, parseWebhook, verifyWebhookSignature } from "./mantapay.js";
 import { objectKey, signedDownloadUrl, signedUploadUrl, storedObject } from "./storage.js";
 import { deliverEntitlements } from "./telegram.js";
 import { rateLimit } from "./rate-limit.js";
@@ -79,26 +79,27 @@ app.get("/health", health);
 app.get("/api/health", health);
 
 // --- MantaPay webhook (form-encoded POST) ---
-app.post("/api/webhooks/mantapay/:secret", express.urlencoded({ extended: false, limit: "64kb" }), asyncRoute(async (req, res) => {
-  if (req.params.secret !== config.MANTAPAY_WEBHOOK_SECRET) {
-    return res.status(403).json({ error: "invalid_webhook_secret" });
-  }
+app.post(["/api/webhooks/mantapay", "/api/webhooks/mantapay/:legacy"], express.urlencoded({ extended: false, limit: "64kb" }), asyncRoute(async (req, res) => {
   const rawPairs = Object.entries(req.body as Record<string, string>)
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
   const hashKey = config.MANTAPAY_HASH_KEY;
   const signatureValid = hashKey ? verifyWebhookSignature(rawPairs, hashKey) : false;
+  if (!signatureValid) return res.status(401).json({ error: "invalid_signature" });
   const payment = parseWebhook(rawPairs);
+  if (payment.status === "approved") {
+    if (!payment.referenceId || !payment.transactionId) return res.status(400).json({ error: "invalid_payment" });
+    const order = await Order.findOne({ publicId: payment.referenceId });
+    if (!order) return res.status(404).json({ error: "unknown_order" });
+    const status = await getStatusByOrder(payment.referenceId);
+    const verified = status.ok && status.transactions.some((transaction) => transaction.status === "approved" && transaction.transId === payment.transactionId && transaction.currency === order.currency && transaction.amount != null && Math.round(transaction.amount * 100) === order.totalMinor);
+    if (!verified || payment.currency !== order.currency || payment.grossAmount == null || Math.round(payment.grossAmount * 100) !== order.totalMinor) return res.status(409).json({ error: "payment_verification_failed" });
+  }
   const eventId = payment.transactionId ?? `${payment.referenceId}-${Date.now()}`;
   try {
     await WebhookEvent.create({ provider: "mantapay", providerEventId: eventId, type: `payment.${payment.status}`, signatureValid, payload: payment.fields });
   } catch (error: unknown) {
     if ((error as { code?: number }).code === 11000) return res.json({ ok: true, duplicate: true });
     throw error;
-  }
-  if (!signatureValid) {
-    console.error("MantaPay webhook signature verification failed", { referenceId: payment.referenceId, replyCode: payment.replyCode });
-    await WebhookEvent.updateOne({ providerEventId: eventId }, { $set: { processingError: "invalid_signature" } });
-    return res.json({ ok: true, signatureValid: false });
   }
   try {
     await applyMantapayPayment(payment);
@@ -205,8 +206,14 @@ app.post("/api/checkout", requireActor("customer"), rateLimit(60_000, 5), asyncR
 }));
 app.get("/api/checkout/:publicId", rateLimit(60_000, 10), asyncRoute(async (req, res) => {
   const order = await Order.findOne({ publicId: req.params.publicId, returnNonce: req.query.state, paymentStatus: "pending" });
-  const url = order?.checkoutUrl;
+  let url = order?.checkoutUrl;
   if (!order || order.expiresAt < new Date() || !url) return res.status(410).send("This checkout session has expired.");
+  const notification = new URL(url).searchParams.get("notification_url");
+  if (notification && new URL(notification).pathname.startsWith("/api/webhooks/mantapay/")) {
+    url = createCheckoutForOrder(order).checkoutUrl;
+    order.checkoutUrl = url;
+    await order.save();
+  }
   res.redirect(302, url);
 }));
 app.get("/api/orders/:publicId", requireActor("customer"), asyncRoute(async (req, res) => {

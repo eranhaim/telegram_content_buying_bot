@@ -177,7 +177,7 @@ export function createCheckoutForOrder(order: any): CheckoutResult {
   const description = order.lines.length === 1 ? order.lines[0].productTitle : `${order.lines.length} items`;
   return buildCheckout({
     merchantId, hashKey, amount: amountEur, currency: order.currency, reference: order.publicId, description,
-    notificationUrl: config.apiUrl(`/api/webhooks/mantapay/${config.MANTAPAY_WEBHOOK_SECRET}`),
+    notificationUrl: config.apiUrl("/api/webhooks/mantapay"),
     redirectUrl: config.apiUrl(`/payment-complete?order=${order.publicId}&state=${order.returnNonce}`),
     expiresAt: order.expiresAt,
   });

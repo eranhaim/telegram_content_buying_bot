@@ -27,7 +27,6 @@ const env = z.object({
   MANTAPAY_HASH_KEY: z.string().optional(),
   MANTAPAY_HOSTED_BASE: z.string().url().default("https://uiservices.mantapay.biz"),
   MANTAPAY_PROCESS_BASE: z.string().url().default("https://process.mantapay.biz"),
-  MANTAPAY_WEBHOOK_SECRET: z.string().min(8).default("dev-mantapay-webhook-secret"),
 }).parse(process.env);
 
 export const config = {

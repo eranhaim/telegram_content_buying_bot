@@ -142,6 +142,8 @@ export async function applyMantapayPayment(payment: MantapayWebhookPayment) {
 
 export async function reconcileOrder(orderId: string, statusResult: { status: MantapayStatus; transaction: any }) {
   if (statusResult.status === "approved" && statusResult.transaction) {
+    const order = await Order.findOne({ publicId: orderId });
+    if (!order || !statusResult.transaction.transId || statusResult.transaction.currency !== order.currency || statusResult.transaction.amount == null || Math.round(statusResult.transaction.amount * 100) !== order.totalMinor) throw new Error("payment_verification_failed");
     return applyMantapayPayment({
       kind: "payment",
       transactionId: statusResult.transaction.transId,
