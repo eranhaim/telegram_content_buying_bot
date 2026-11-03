@@ -4,6 +4,7 @@ import { z } from "zod";
 import { config } from "./config.js";
 import { BROWSER_CUSTOMER_LABEL, isBrowserCustomer, issueAdminSession, issueBrowserSession, issueTelegramSession, requireActor, saveCustomerLocale, verifyAdminPassword } from "./auth.js";
 import { customerLocales } from "./customer-locale.js";
+import { customerCountry } from "./customer-region.js";
 import { AuditEvent, Cart, Category, Creator, Delivery, Entitlement, MediaAsset, Order, Product, TelegramUser, WebhookEvent } from "./models.js";
 import { applyMantapayPayment, createOrderForCart } from "./orders.js";
 import { createCheckoutForOrder, getStatusByOrder, parseWebhook, verifyWebhookSignature } from "./mantapay.js";
@@ -119,11 +120,11 @@ app.use(express.json({ limit: "1mb" }));
 
 app.post("/api/auth/telegram", rateLimit(60_000, 30), asyncRoute(async (req, res) => {
   const body = z.object({ initData: z.string().min(1) }).parse(req.body);
-  res.json(await issueTelegramSession(body.initData));
+  res.json(await issueTelegramSession(body.initData, customerCountry(req), req.acceptsLanguages()[0]));
 }));
 app.post("/api/auth/browser", rateLimit(60_000, 30), asyncRoute(async (req, res) => {
   const body = z.object({ browserId: z.string().min(1) }).strict().parse(req.body);
-  res.json(await issueBrowserSession(body.browserId));
+  res.json(await issueBrowserSession(body.browserId, customerCountry(req), req.acceptsLanguages()[0]));
 }));
 app.post("/api/auth/admin", rateLimit(15 * 60_000, 10), asyncRoute(async (req, res) => {
   const body = z.object({ password: z.string().min(1) }).strict().parse(req.body);

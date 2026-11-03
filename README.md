@@ -5,6 +5,8 @@ MongoDB order records, private S3-compatible media storage, and protected Bot AP
 
 ## Run locally
 
+Use Node.js 24 or newer.
+
 1. Copy `.env.example` to `.env` and replace every production secret.
 2. Configure a private S3-compatible bucket in `.env`, including CORS access for the web application's origin, and start MongoDB with `docker compose up -d mongodb`.
 3. Run `npm install`, then `npm run dev` and `npm run dev:web` in another terminal.

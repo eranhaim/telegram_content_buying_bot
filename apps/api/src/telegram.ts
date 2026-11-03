@@ -1,11 +1,20 @@
 import { Input, Telegraf } from "telegraf";
 import { config } from "./config.js";
 import { canReceiveProtectedDelivery } from "./auth.js";
-import { customerBotCopy, customerLocale } from "./customer-locale.js";
+import { customerBotCopy, resolveCustomerLocale, supportedCustomerLocale } from "./customer-locale.js";
 import { Delivery, Entitlement, MediaAsset, Order, TelegramUser } from "./models.js";
 import { signedDownloadUrl } from "./storage.js";
 
 export const bot = config.TELEGRAM_BOT_TOKEN ? new Telegraf(config.TELEGRAM_BOT_TOKEN) : null;
+
+async function botLocale(from: { id: number; language_code?: string }) {
+  const user = await TelegramUser.findOne({ telegramId: String(from.id) });
+  const telegramLocale = supportedCustomerLocale(from.language_code);
+  if (user && telegramLocale && user.locale !== telegramLocale) {
+    await TelegramUser.updateOne({ _id: user._id }, { $set: { locale: telegramLocale } });
+  }
+  return user?.localeOverride ?? resolveCustomerLocale({ telegramLanguage: from.language_code, previousLocale: user?.locale });
+}
 
 export async function startBot() {
   if (!bot) return;
@@ -17,7 +26,8 @@ export async function startBot() {
     },
   });
   bot.start(async (ctx) => {
-    const locale = customerLocale(ctx.from.language_code);
+    const existing = await TelegramUser.findOne({ telegramId: String(ctx.from.id) }).select("locale").lean() as { locale?: string } | null;
+    const locale = resolveCustomerLocale({ telegramLanguage: ctx.from.language_code, previousLocale: existing?.locale });
     const user = await TelegramUser.findOneAndUpdate(
       { telegramId: String(ctx.from.id) },
       { $set: { chatId: String(ctx.chat.id), username: ctx.from.username, firstName: ctx.from.first_name, lastName: ctx.from.last_name, locale, lastSeenAt: new Date() } },
@@ -33,13 +43,11 @@ export async function startBot() {
     });
   });
   bot.command("purchases", async (ctx) => {
-    const user = await TelegramUser.findOne({ telegramId: String(ctx.from.id) });
-    const copy = customerBotCopy(user?.localeOverride ?? user?.locale ?? customerLocale(ctx.from.language_code));
+    const copy = customerBotCopy(await botLocale(ctx.from));
     await ctx.reply(`${copy.purchases} ${new URL("/library", config.PUBLIC_APP_URL)}`);
   });
   bot.command("support", async (ctx) => {
-    const user = await TelegramUser.findOne({ telegramId: String(ctx.from.id) });
-    await ctx.reply(customerBotCopy(user?.localeOverride ?? user?.locale ?? customerLocale(ctx.from.language_code)).support);
+    await ctx.reply(customerBotCopy(await botLocale(ctx.from)).support);
   });
   await bot.launch();
 }

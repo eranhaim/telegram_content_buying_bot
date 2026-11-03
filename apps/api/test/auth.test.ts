@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import test from "node:test";
 
 process.env.TELEGRAM_BOT_TOKEN = "test-telegram-bot-token";
-const { browserTelegramId, canReceiveProtectedDelivery, saveCustomerLocale, verifyTelegramInitData } = await import("../src/auth.js");
+const { browserTelegramId, canReceiveProtectedDelivery, issueTelegramSession, saveCustomerLocale, verifyTelegramInitData } = await import("../src/auth.js");
 const { TelegramUser } = await import("../src/models.js");
 
 function signedInitData(entries: [string, string][]) {
@@ -69,5 +69,25 @@ test("customer locale overrides are persisted separately from Telegram language"
     assert.deepEqual(update, { $set: { localeOverride: "he" } });
   } finally {
     TelegramUser.updateOne = originalUpdate;
+  }
+});
+
+test("a manual choice is preserved while automatic Telegram language is updated", async () => {
+  const find = TelegramUser.findOne;
+  const upsert = TelegramUser.findOneAndUpdate;
+  let saved: any;
+  TelegramUser.findOne = (() => ({ select: () => ({ lean: async () => ({ locale: "he" }) }) })) as never;
+  TelegramUser.findOneAndUpdate = (async (_filter: unknown, update: any) => {
+    saved = update.$set.locale;
+    return { _id: "user-id", locale: saved, localeOverride: "es" };
+  }) as never;
+  try {
+    const initData = signedInitData([["auth_date", String(Math.floor(Date.now() / 1000))], ["user", JSON.stringify({ id: 123, language_code: "fr" })]]);
+    const session = await issueTelegramSession(initData, "IL", "en");
+    assert.equal(saved, "fr");
+    assert.equal(session.locale, "es");
+  } finally {
+    TelegramUser.findOne = find;
+    TelegramUser.findOneAndUpdate = upsert;
   }
 });

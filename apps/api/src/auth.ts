@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
 import type { NextFunction, Request, Response } from "express";
 import { config } from "./config.js";
-import { customerLocale, type CustomerLocale } from "./customer-locale.js";
+import { resolveCustomerLocale, type CustomerLocale } from "./customer-locale.js";
 import { TelegramUser } from "./models.js";
 
 export const BROWSER_CUSTOMER_LABEL = "browser users";
@@ -35,9 +35,10 @@ export function verifyTelegramInitData(initData: string) {
   return JSON.parse(rawUser) as { id: number; username?: string; first_name?: string; last_name?: string; language_code?: string };
 }
 
-export async function issueTelegramSession(initData: string) {
+export async function issueTelegramSession(initData: string, country?: string, browserLanguage?: string) {
   const user = verifyTelegramInitData(initData);
-  const locale = customerLocale(user.language_code);
+  const previous = await TelegramUser.findOne({ telegramId: String(user.id) }).select("locale").lean() as { locale?: string } | null;
+  const locale = resolveCustomerLocale({ telegramLanguage: user.language_code, country, browserLanguage, previousLocale: previous?.locale });
   const account = await TelegramUser.findOneAndUpdate(
     { telegramId: String(user.id) },
     { $set: { username: user.username, firstName: user.first_name, lastName: user.last_name, locale, lastSeenAt: new Date() } },
@@ -74,12 +75,13 @@ function browserSessionResponse(account: { _id: unknown; localeOverride?: string
   };
 }
 
-export async function issueBrowserSession(browserId: string) {
+export async function issueBrowserSession(browserId: string, country?: string, browserLanguage?: string) {
   const telegramId = browserTelegramId(browserId);
+  const locale = resolveCustomerLocale({ country, browserLanguage });
   const update = {
-    $set: { firstName: BROWSER_CUSTOMER_LABEL, lastSeenAt: new Date() },
+    $set: { firstName: BROWSER_CUSTOMER_LABEL, lastSeenAt: new Date(), locale },
     $unset: { username: 1, chatId: 1, lastName: 1 },
-    $setOnInsert: { telegramId, locale: "en" },
+    $setOnInsert: { telegramId },
   };
   try {
     const account = await TelegramUser.findOneAndUpdate({ telegramId }, update, { upsert: true, new: true, setDefaultsOnInsert: true });

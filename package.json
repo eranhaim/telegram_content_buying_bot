@@ -13,6 +13,6 @@
     "test": "npm run test --workspaces"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   }
 }

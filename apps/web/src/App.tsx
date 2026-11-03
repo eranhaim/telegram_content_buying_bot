@@ -10,7 +10,7 @@ import { adminCopy, adminDirection, adminLanguage, type AdminLanguage } from "./
 import { customerCopy, customerDirection, customerLocale, customerLocales, type CustomerLocale } from "./customer-i18n";
 
 const localeLabel = (locale: CustomerLocale): string => {
-  const labels: Record<CustomerLocale, string> = { en: "EN", he: "עב", fr: "FR", es: "ES", de: "DE", "pt-BR": "PT-BR", "pt-PT": "PT" };
+  const labels: Record<CustomerLocale, string> = { en: "EN", he: "עב", ar: "عربي", ru: "RU", fr: "FR", es: "ES", de: "DE", "pt-BR": "PT-BR", "pt-PT": "PT" };
   return labels[locale];
 };
 

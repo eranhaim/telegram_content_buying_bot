@@ -16,6 +16,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "geoip-lite": "2.0.3",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.12.1",
     "pino": "^9.6.0",
@@ -25,6 +26,7 @@
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
+    "@types/geoip-lite": "^1.4.4",
     "@types/jsonwebtoken": "^9.0.9",
     "@types/node": "^22.13.5",
     "tsx": "^4.19.3",

@@ -70,8 +70,8 @@ productSchema.index({ status: 1, createdAt: -1 });
 const telegramUserSchema = new Schema({
   telegramId: { type: String, required: true, unique: true },
   chatId: String, username: String, firstName: String, lastName: String,
-  locale: { type: String, enum: ["en", "he", "fr", "es", "de", "pt-BR", "pt-PT"], default: "en" },
-  localeOverride: { type: String, enum: ["en", "he", "fr", "es", "de", "pt-BR", "pt-PT"] },
+  locale: { type: String, enum: ["en", "he", "ar", "ru", "fr", "es", "de", "pt-BR", "pt-PT"], default: "en" },
+  localeOverride: { type: String, enum: ["en", "he", "ar", "ru", "fr", "es", "de", "pt-BR", "pt-PT"] },
   ageConfirmedAt: Date, ageConfirmationVersion: String, deliveryBlockedAt: Date,
   lastSeenAt: { type: Date, default: Date.now },
 }, timestamps);

@@ -1,7 +1,7 @@
-export const customerLocales = ["en", "he", "fr", "es", "de", "pt-BR", "pt-PT"] as const;
+export const customerLocales = ["en", "he", "ar", "ru", "fr", "es", "de", "pt-BR", "pt-PT"] as const;
 export type CustomerLocale = typeof customerLocales[number];
 
-export const customerDirection = (locale: CustomerLocale) => locale === "he" ? "rtl" : "ltr";
+export const customerDirection = (locale: CustomerLocale) => locale === "he" || locale === "ar" ? "rtl" : "ltr";
 export function customerLocale(value: unknown): CustomerLocale {
   if ((customerLocales as readonly string[]).includes(String(value))) return value as CustomerLocale;
   if ((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV) console.warn("[customer-i18n] unsupported locale; using English", value);
@@ -43,6 +43,26 @@ export const customerCopy: Record<CustomerLocale, CustomerCopy> = {
     openingCatalog: "Vesper נפתח…", browserSessionError: "לא ניתן לפתוח את Vesper בדפדפן. רעננו את הדף.", sessionVerifying: "מאמתים את הפעלת Telegram…", sessionError: "לא ניתן לאמת את הפעלת Telegram. סגרו את הדף ופתחו מחדש את Vesper.", close: "סגירה",
     ageText: "אני מאשר/ת שגילי לפחות 18.",
     status: { delivered: "נמסר", queued: "ממתין למסירה", partial: "נמסר חלקית", failed: "המסירה נכשלה", not_ready: "מכינים למסירה" },
+  },
+  ar: {
+    discover: "اكتشف", guide: "الدليل", cart: "السلة", purchases: "المشتريات", language: "اللغة", privateMarketplace: "Vesper",
+    discoverTitle: "اشترِ المحتوى الذي تبحث عنه", catalogLead: "", viewCreator: "عرض المجموعة", featuredVideo: "المعاينة الأكثر مشاهدة", featuredVideoUnavailable: "المعاينة غير متاحة", deliveryNotice: "", guideLink: "", defaultBio: "اكتشف المجموعة الخاصة لهذا المنشئ.", emptyCatalogTitle: "منشئون جدد قريبًا", emptyCatalogText: "تحقق لاحقًا من مجموعات المنشئين الجديدة.",
+    guideTitle: "كيف يعمل Vesper", guideSteps: [["١. اكتشف المنشئين", "تصفح مجموعات المنشئين المتاحة."], ["٢. شاهد المعاينات", "تصفح المعاينات قبل اختيار المحتوى."], ["٣. أضف إلى السلة", "اختر المحتوى وراجع السعر ثم تابع إلى الدفع الآمن."], ["٤. استلم مشترياتك على Telegram", "بعد الدفع تُرسل الملفات إليك بشكل خاص على Telegram."]], startDiscovering: "اكتشف المحتوى",
+    creatorStorefront: "متجر المنشئ", creatorUnavailable: "هذا المنشئ غير متاح حاليًا.", addedToCart: "تمت الإضافة إلى السلة.", cartUpdateFailed: "تعذر تحديث السلة.", checkoutUnavailable: "الدفع الآمن غير متاح حاليًا. حاول مجددًا لاحقًا.", telegramCheckoutRequired: "الدفع متاح فقط في تطبيق Vesper على Telegram. افتح التطبيق من البوت للمتابعة.", previewUnavailable: "المعاينة غير متاحة", blurredPreview: "معاينة ضبابية", addToCart: "أضف إلى السلة", noContent: "لا يوجد محتوى متاح من هذا المنشئ بعد.", backDiscover: "العودة إلى الاكتشاف",
+    cartTitle: "سلتك", emptyCart: "سلتك فارغة.", total: "المجموع", secureCheckout: "المتابعة إلى الدفع الآمن", continueBrowsing: "متابعة التصفح", remove: "إزالة",
+    purchasesTitle: "مشترياتك", noPurchases: "ليس لديك مشتريات بعد.", delivery: "التسليم", retryDelivery: "إعادة محاولة التسليم", retryQueued: "تم طلب إعادة التسليم.", paymentChecking: "جارٍ التحقق من الدفع…", paymentConfirmed: "تم تأكيد الدفع. يُرسل المحتوى إليك على Telegram.", paymentProcessing: "لا يزال الدفع قيد المعالجة.", paymentReturn: "عد إلى Telegram وتحقق من المشتريات قريبًا.",
+    openingCatalog: "جارٍ فتح Vesper…", browserSessionError: "تعذر فتح Vesper في المتصفح. أعد تحميل الصفحة.", sessionVerifying: "جارٍ التحقق من جلسة Telegram…", sessionError: "تعذر التحقق من جلسة Telegram. أغلق الصفحة وافتح Vesper مجددًا.", close: "إغلاق", ageText: "أؤكد أن عمري ١٨ عامًا على الأقل.",
+    status: { delivered: "تم التسليم", queued: "قيد الانتظار", partial: "تم التسليم جزئيًا", failed: "فشل التسليم", not_ready: "جارٍ تجهيز التسليم" },
+  },
+  ru: {
+    discover: "Обзор", guide: "Как это работает", cart: "Корзина", purchases: "Покупки", language: "Язык", privateMarketplace: "Vesper",
+    discoverTitle: "Найдите и купите контент", catalogLead: "", viewCreator: "Открыть коллекцию", featuredVideo: "Популярный просмотр", featuredVideoUnavailable: "Предпросмотр недоступен", deliveryNotice: "", guideLink: "", defaultBio: "Посмотрите приватную коллекцию автора.", emptyCatalogTitle: "Скоро появятся новые авторы", emptyCatalogText: "Загляните позже, чтобы увидеть новые коллекции.",
+    guideTitle: "Как работает Vesper", guideSteps: [["1. Найдите авторов", "Просматривайте доступные коллекции авторов."], ["2. Посмотрите превью", "Изучите превью перед выбором контента."], ["3. Добавьте в корзину", "Выберите контент, проверьте цену и перейдите к безопасной оплате."], ["4. Получите покупки в Telegram", "После оплаты файлы будут отправлены вам в личном сообщении в Telegram."]], startDiscovering: "Смотреть контент",
+    creatorStorefront: "СТРАНИЦА АВТОРА", creatorUnavailable: "Этот автор сейчас недоступен.", addedToCart: "Добавлено в корзину.", cartUpdateFailed: "Не удалось обновить корзину.", checkoutUnavailable: "Безопасная оплата сейчас недоступна. Попробуйте позже.", telegramCheckoutRequired: "Оплата доступна только в приложении Vesper в Telegram. Откройте Vesper через бота.", previewUnavailable: "Предпросмотр недоступен", blurredPreview: "РАЗМЫТОЕ ПРЕВЬЮ", addToCart: "В корзину", noContent: "У этого автора пока нет доступного контента.", backDiscover: "Вернуться к обзору",
+    cartTitle: "Ваша корзина", emptyCart: "Ваша корзина пуста.", total: "Итого", secureCheckout: "Перейти к безопасной оплате", continueBrowsing: "Продолжить просмотр", remove: "Удалить",
+    purchasesTitle: "Ваши покупки", noPurchases: "У вас пока нет покупок.", delivery: "Доставка", retryDelivery: "Повторить доставку", retryQueued: "Запрошена повторная доставка.", paymentChecking: "Проверяем оплату…", paymentConfirmed: "Оплата подтверждена. Контент отправляется вам в Telegram.", paymentProcessing: "Платёж ещё обрабатывается.", paymentReturn: "Вернитесь в Telegram и вскоре проверьте покупки.",
+    openingCatalog: "Открываем Vesper…", browserSessionError: "Не удалось открыть Vesper в браузере. Обновите страницу.", sessionVerifying: "Проверяем сессию Telegram…", sessionError: "Не удалось проверить сессию Telegram. Закройте страницу и снова откройте Vesper.", close: "Закрыть", ageText: "Я подтверждаю, что мне исполнилось 18 лет.",
+    status: { delivered: "Доставлено", queued: "В очереди", partial: "Доставлено частично", failed: "Ошибка доставки", not_ready: "Подготовка к доставке" },
   },
   fr: {
     discover: "Découvrir", guide: "Guide", cart: "Panier", purchases: "Achats", language: "Langue", privateMarketplace: "Vesper",

@@ -25,3 +25,10 @@ test("Hebrew enables RTL with localized customer text", () => {
   assert.match(customerCopy.he.discoverTitle, /תקנו את התוכן שאתם מחפשים/);
   assert.match(customerCopy.he.secureCheckout, /תשלום/);
 });
+
+test("Arabic uses RTL and Russian uses LTR", () => {
+  assert.equal(customerDirection("ar"), "rtl");
+  assert.equal(customerDirection("ru"), "ltr");
+  assert.match(customerCopy.ar.secureCheckout, /الدفع/);
+  assert.match(customerCopy.ru.secureCheckout, /оплат/);
+});
