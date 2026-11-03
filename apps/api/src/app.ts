@@ -213,8 +213,10 @@ app.get("/api/checkout/:publicId", rateLimit(60_000, 10), asyncRoute(async (req,
   const order = await Order.findOne({ publicId: req.params.publicId, returnNonce: req.query.state, paymentStatus: "pending" });
   let url = order?.checkoutUrl;
   if (!order || order.expiresAt < new Date() || !url) return res.status(410).send("This checkout session has expired.");
-  const notification = new URL(url).searchParams.get("notification_url");
-  if (notification && new URL(notification).pathname.startsWith("/api/webhooks/mantapay/")) {
+  const params = new URL(url).searchParams;
+  const notification = params.get("notification_url");
+  const returnUrl = params.get("url_redirect");
+  if (notification !== config.apiUrl("/api/webhooks/mantapay") || !returnUrl || new URL(returnUrl).origin !== new URL(config.PUBLIC_APP_URL).origin) {
     url = createCheckoutForOrder(order).checkoutUrl;
     order.checkoutUrl = url;
     await order.save();
