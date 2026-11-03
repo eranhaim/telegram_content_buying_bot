@@ -60,6 +60,7 @@ const catalogProduct = async (product: any, previews: Map<string, any>, categori
     _id: String(product._id), title: product.title, description: product.description, amountMinor: product.amountMinor,
     currency: product.currency, creatorId: String(product.creatorId), previewMode: product.previewMode,
     categories: (product.categoryIds ?? []).map((categoryId: unknown) => categories.get(String(categoryId))?.name).filter(Boolean),
+    categoryIds: (product.categoryIds ?? []).map(String).filter((categoryId: string) => categories.has(categoryId)),
     preview: preview ? { mimeType: preview.mimeType, url: await signedDownloadUrl(preview.storageKey) } : null,
   };
 };
@@ -132,8 +133,15 @@ app.post("/api/auth/admin", rateLimit(15 * 60_000, 10), asyncRoute(async (req, r
   res.json({ token: issueAdminSession() });
 }));
 
-app.get("/api/catalog/creators", requireActor("customer"), asyncRoute(async (_req, res) => {
-  const creators = await Creator.find({ status: "published" }).sort({ displayName: 1 }).lean();
+app.get("/api/catalog/categories", requireActor("customer"), asyncRoute(async (_req, res) => {
+  const categories = await Category.find({ status: "active" }).select("name slug").sort({ name: 1 }).lean();
+  res.json({ items: categories.map((category: any) => ({ _id: String(category._id), name: category.name, slug: category.slug })) });
+}));
+app.get("/api/catalog/creators", requireActor("customer"), asyncRoute(async (req, res) => {
+  const categoryId = req.query.category;
+  if (categoryId !== undefined && !objectId.safeParse(categoryId).success) return res.status(400).json({ error: "invalid_category" });
+  const creatorIds = categoryId ? await Product.distinct("creatorId", { status: "published", categoryIds: categoryId }) : undefined;
+  const creators = await Creator.find({ status: "published", ...(creatorIds ? { _id: { $in: creatorIds } } : {}) }).sort({ displayName: 1 }).lean();
   res.json({ items: await Promise.all(creators.map(catalogCreator)) });
 }));
 app.get("/api/catalog/creators/:slug/products", requireActor("customer"), asyncRoute(async (req, res) => {

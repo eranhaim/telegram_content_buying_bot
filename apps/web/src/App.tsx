@@ -8,11 +8,37 @@ import { prefixer } from "stylis";
 import { clearToken, Creator, euroToMinor, money, Product, request, setToken } from "./api";
 import { adminCopy, adminDirection, adminLanguage, type AdminLanguage } from "./admin-i18n";
 import { customerCopy, customerDirection, customerLocale, customerLocales, type CustomerLocale } from "./customer-i18n";
+import { productsInCategory } from "./catalog-filter";
 
 const localeLabel = (locale: CustomerLocale): string => {
   const labels: Record<CustomerLocale, string> = { en: "EN", he: "עב", ar: "عربي", ru: "RU", fr: "FR", es: "ES", de: "DE", "pt-BR": "PT-BR", "pt-PT": "PT" };
   return labels[locale];
 };
+
+type CatalogCategory = { _id: string; name: string; slug: string };
+const categoryCopy: Record<CustomerLocale, { all: string; label: string; emptyCreators: string; emptyProducts: string }> = {
+  en: { all: "All", label: "Filter by category", emptyCreators: "No creators have content in this category yet.", emptyProducts: "No content in this category yet." },
+  he: { all: "הכול", label: "סינון לפי קטגוריה", emptyCreators: "עדיין אין יוצרים עם תוכן בקטגוריה הזו.", emptyProducts: "עדיין אין תוכן בקטגוריה הזו." },
+  ar: { all: "الكل", label: "التصفية حسب الفئة", emptyCreators: "لا يوجد منشئون لديهم محتوى في هذه الفئة بعد.", emptyProducts: "لا يوجد محتوى في هذه الفئة بعد." },
+  ru: { all: "Все", label: "Фильтр по категории", emptyCreators: "В этой категории пока нет авторов.", emptyProducts: "В этой категории пока нет контента." },
+  fr: { all: "Tout", label: "Filtrer par catégorie", emptyCreators: "Aucun créateur n’a encore de contenu dans cette catégorie.", emptyProducts: "Aucun contenu dans cette catégorie pour le moment." },
+  es: { all: "Todo", label: "Filtrar por categoría", emptyCreators: "Aún no hay creadores con contenido en esta categoría.", emptyProducts: "Aún no hay contenido en esta categoría." },
+  de: { all: "Alle", label: "Nach Kategorie filtern", emptyCreators: "In dieser Kategorie gibt es noch keine Creator.", emptyProducts: "In dieser Kategorie gibt es noch keine Inhalte." },
+  "pt-BR": { all: "Todos", label: "Filtrar por categoria", emptyCreators: "Ainda não há criadores com conteúdo nesta categoria.", emptyProducts: "Ainda não há conteúdo nesta categoria." },
+  "pt-PT": { all: "Todos", label: "Filtrar por categoria", emptyCreators: "Ainda não há criadores com conteúdo nesta categoria.", emptyProducts: "Ainda não há conteúdo nesta categoria." },
+};
+
+function CategoryStrip({ categories, selected, select, locale }: { categories: CatalogCategory[]; selected: string; select: (id: string) => void; locale: CustomerLocale }) {
+  if (!categories.length) return null;
+  const labels = categoryCopy[locale];
+  const options = [{ _id: "", name: labels.all }, ...categories];
+  return <div className="category-strip" role="group" aria-label={labels.label}>
+    <div className="category-strip-track" dir="ltr">
+      <div className="category-strip-group">{options.map((option) => <button type="button" key={option._id} dir="auto" className={`category-chip${selected === option._id ? " selected" : ""}`} aria-pressed={selected === option._id} onClick={() => select(option._id)}>{option.name}</button>)}</div>
+      <div className="category-strip-group category-strip-copy" aria-hidden="true">{options.map((option) => <span key={option._id} dir="auto" className={`category-chip${selected === option._id ? " selected" : ""}`} onClick={() => select(option._id)}>{option.name}</span>)}</div>
+    </div>
+  </div>;
+}
 
 function TabIcon({ name }: { name: "discover" | "guide" | "cart" | "library" }) {
   const props = { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.75, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true as const };
@@ -160,18 +186,19 @@ function CustomerShell({ locale, setLocale, cartCount, children }: { locale: Cus
   </div>;
 }
 
-function Catalog({ t }: { t: CustomerText }) {
+function Catalog({ t, locale, categories, selected, select }: { t: CustomerText; locale: CustomerLocale; categories: CatalogCategory[]; selected: string; select: (id: string) => void }) {
   const [creators, setCreators] = useState<Creator[]>([]);
-  useEffect(() => { void request<{ items: Creator[] }>("/catalog/creators").then((result) => setCreators(result.items)); }, []);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { let active = true; setLoading(true); void request<{ items: Creator[] }>(`/catalog/creators${selected ? `?category=${encodeURIComponent(selected)}` : ""}`).then((result) => { if (active) setCreators(result.items); }).catch(() => { if (active) setCreators([]); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [selected]);
   return <main className="customer-main">
     <div className="catalog-hero">
-      <p className="eyebrow">VESPER / TELESCOPE</p>
       <h1>{t.discoverTitle}</h1>
       <p className="catalog-lead">{t.catalogLead}</p>
     </div>
-    {creators.length
+    <CategoryStrip categories={categories} selected={selected} select={select} locale={locale} />
+    {!loading && (creators.length
       ? <TelescopeCreatorList creators={creators} viewLabel={t.viewCreator} />
-      : <article className="creator-card creator-empty-card"><div className="creator-cover" /><h2>{t.emptyCatalogTitle}</h2><p>{t.emptyCatalogText}</p></article>}
+      : selected ? <p className="empty">{categoryCopy[locale].emptyCreators}</p> : <article className="creator-card creator-empty-card"><div className="creator-cover" /><h2>{t.emptyCatalogTitle}</h2><p>{t.emptyCatalogText}</p></article>)}
   </main>;
 }
 
@@ -214,7 +241,7 @@ function ContentGrid({ items, add, empty, renderCopy, addCard, className = "", t
   </article>)}{addCard}{!items.length && empty}</section>;
 }
 
-function CreatorPage({ t, locale, onCartChange }: { t: CustomerText; locale: CustomerLocale; onCartChange: () => void }) {
+function CreatorPage({ t, locale, categories, selected, select, onCartChange }: { t: CustomerText; locale: CustomerLocale; categories: CatalogCategory[]; selected: string; select: (id: string) => void; onCartChange: () => void }) {
   const { slug } = useParams();
   const [items, setItems] = useState<Product[]>([]);
   const [creator, setCreator] = useState<Creator | null>(null);
@@ -239,8 +266,9 @@ function CreatorPage({ t, locale, onCartChange }: { t: CustomerText; locale: Cus
         <p>{creator?.bio}</p>
       </div>
     </section>
+    <CategoryStrip categories={categories} selected={selected} select={select} locale={locale} />
     {notice && <p role="status" className="notice">{notice}</p>}
-    <ContentGrid items={items} add={add} added={added} t={t} locale={locale} empty={<p className="empty">{t.noContent}</p>} />
+    <ContentGrid items={productsInCategory(items, selected)} add={add} added={added} t={t} locale={locale} empty={<p className="empty">{selected ? categoryCopy[locale].emptyProducts : t.noContent}</p>} />
   </main>;
 }
 
@@ -638,14 +666,18 @@ function AdminCustomers({ t }: { t: typeof adminCopy.en }) {
 function Marketplace() {
   const { ready, error, telegramAttempt, browser, locale, setLocale } = useCustomerSession();
   const [cartCount, setCartCount] = useState(0);
+  const [categories, setCategories] = useState<CatalogCategory[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState(() => sessionStorage.getItem("vesper_category") ?? "");
+  const selectCategory = (id: string) => { setSelectedCategory(id); if (id) sessionStorage.setItem("vesper_category", id); else sessionStorage.removeItem("vesper_category"); };
   const t = customerCopy[locale];
   const refreshCartCount = useCallback(() => {
     void request<Cart>("/cart").then((cart) => setCartCount(cart?.items?.length ?? 0)).catch(() => {});
   }, []);
   useEffect(() => { if (ready) refreshCartCount(); }, [ready, refreshCartCount]);
+  useEffect(() => { if (!ready) return; let active = true; void request<{ items: CatalogCategory[] }>("/catalog/categories").then(({ items }) => { if (!active) return; setCategories(items); setSelectedCategory((current) => { if (current && !items.some((category) => category._id === current)) { sessionStorage.removeItem("vesper_category"); return ""; } return current; }); }).catch(() => {}); return () => { active = false; }; }, [ready]);
   if (error) return <main className="customer-main session-gate"><p className="brand-lockup"><img src="/vesper.svg" alt="" /><span className="brand-name">Vesper</span></p><p>{telegramAttempt ? t.sessionError : t.browserSessionError}</p></main>;
   if (!ready) return <main className="customer-main session-gate"><p className="brand-lockup"><img src="/vesper.svg" alt="" /><span className="brand-name">Vesper</span></p><p>{t.openingCatalog}</p></main>;
-  return <CustomerShell locale={locale} setLocale={setLocale} cartCount={cartCount}><Routes><Route path="/" element={<Catalog t={t} />} /><Route path="/guide" element={<Guide t={t} />} /><Route path="/creators/:slug" element={<CreatorPage t={t} locale={locale} onCartChange={refreshCartCount} />} /><Route path="/cart" element={<CartPage t={t} locale={locale} browser={browser} onCartChange={refreshCartCount} />} /><Route path="/library" element={<Library t={t} />} /><Route path="/payment-complete" element={<PaymentComplete t={t} />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes></CustomerShell>;
+  return <CustomerShell locale={locale} setLocale={setLocale} cartCount={cartCount}><Routes><Route path="/" element={<Catalog t={t} locale={locale} categories={categories} selected={selectedCategory} select={selectCategory} />} /><Route path="/guide" element={<Guide t={t} />} /><Route path="/creators/:slug" element={<CreatorPage t={t} locale={locale} categories={categories} selected={selectedCategory} select={selectCategory} onCartChange={refreshCartCount} />} /><Route path="/cart" element={<CartPage t={t} locale={locale} browser={browser} onCartChange={refreshCartCount} />} /><Route path="/library" element={<Library t={t} />} /><Route path="/payment-complete" element={<PaymentComplete t={t} />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes></CustomerShell>;
 }
 
 export function App() {
