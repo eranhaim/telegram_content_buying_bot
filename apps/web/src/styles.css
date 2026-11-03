@@ -200,10 +200,9 @@ label input, label select, label textarea { font-weight: 400; }
 .category-strip-track {
   display: flex;
   width: max-content;
-  min-width: 200%;
   animation: category-marquee 28s linear infinite;
 }
-.category-strip-group { display: flex; flex: 1 0 50%; gap: 8px; padding-inline-end: 8px; }
+.category-strip-group { display: flex; flex: 0 0 auto; gap: 8px; padding-inline-end: 8px; }
 .category-strip .category-chip {
   display: inline-flex;
   flex: 0 0 auto;
@@ -1111,5 +1110,5 @@ fieldset input { width: auto; margin-inline-end: 8px; }
   .cart-added-glow { animation: none; }
   .category-strip-track { animation: none; min-width: 0; }
   .category-strip-group { flex-basis: auto; }
-  .category-strip-copy { display: none; }
+  .category-strip-copy, .category-strip-repeat { display: none !important; }
 }

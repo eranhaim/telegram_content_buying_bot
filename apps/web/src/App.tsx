@@ -32,10 +32,12 @@ function CategoryStrip({ categories, selected, select, locale }: { categories: C
   if (!categories.length) return null;
   const labels = categoryCopy[locale];
   const options = [{ _id: "", name: labels.all }, ...categories];
+  const repeats = Math.ceil(12 / options.length);
+  const visualOptions = Array.from({ length: repeats }, () => options).flat();
   return <div className="category-strip" role="group" aria-label={labels.label}>
     <div className="category-strip-track" dir="ltr">
-      <div className="category-strip-group">{options.map((option) => <button type="button" key={option._id} dir="auto" className={`category-chip${selected === option._id ? " selected" : ""}`} aria-pressed={selected === option._id} onClick={() => select(option._id)}>{option.name}</button>)}</div>
-      <div className="category-strip-group category-strip-copy" aria-hidden="true">{options.map((option) => <span key={option._id} dir="auto" className={`category-chip${selected === option._id ? " selected" : ""}`} onClick={() => select(option._id)}>{option.name}</span>)}</div>
+      <div className="category-strip-group">{options.map((option) => <button type="button" key={option._id} dir="auto" className={`category-chip${selected === option._id ? " selected" : ""}`} aria-pressed={selected === option._id} onClick={() => select(option._id)}>{option.name}</button>)}{visualOptions.slice(options.length).map((option, index) => <span aria-hidden="true" key={`${option._id}-${index}`} dir="auto" className={`category-chip category-strip-repeat${selected === option._id ? " selected" : ""}`} onClick={() => select(option._id)}>{option.name}</span>)}</div>
+      <div className="category-strip-group category-strip-copy" aria-hidden="true">{visualOptions.map((option, index) => <span key={`${option._id}-${index}`} dir="auto" className={`category-chip${selected === option._id ? " selected" : ""}`} onClick={() => select(option._id)}>{option.name}</span>)}</div>
     </div>
   </div>;
 }
