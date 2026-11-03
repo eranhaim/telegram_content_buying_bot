@@ -13,9 +13,43 @@ type CreatorIdentity = {
 };
 
 const TELESCOPE_CATALOG_URL = "https://telescope.ora-town.com/api/profiles";
-const CACHE_TTL_MS = 50 * 60 * 1000;
+// Telescope caches its signed URLs too. Their lifetime starts when Telescope
+// signs them, not when Vesper receives the profile list.
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const EXPIRY_MARGIN_MS = 60 * 1000;
 let cachedProfiles: { profiles: TelescopeCatalogProfile[]; expiresAt: number } | undefined;
 let pendingProfiles: Promise<TelescopeCatalogProfile[]> | undefined;
+
+export function signedAvatarExpiresAt(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    const date = url.searchParams.get("X-Amz-Date");
+    const duration = Number(url.searchParams.get("X-Amz-Expires"));
+    const parts = date?.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
+    if (!parts || !Number.isFinite(duration) || duration <= 0) return undefined;
+    const [, year, month, day, hour, minute, second] = parts.map(Number);
+    return Date.UTC(year, month - 1, day, hour, minute, second) + duration * 1000;
+  } catch { return undefined; }
+}
+
+export function avatarProfilesCacheExpiry(profiles: TelescopeCatalogProfile[], now: number): number {
+  const expiries = profiles.flatMap((profile) => {
+    const expiry = signedAvatarExpiresAt(profile.profileImageThumbUrl || profile.profileImageUrl);
+    return expiry === undefined ? [] : [expiry - EXPIRY_MARGIN_MS];
+  });
+  return Math.max(now + 5_000, Math.min(now + CACHE_TTL_MS, ...expiries));
+}
+
+function usableAvatarUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || !(url.hostname.endsWith(".amazonaws.com") || url.hostname.endsWith(".vultrobjects.com"))) return undefined;
+    const expiry = signedAvatarExpiresAt(value);
+    return expiry !== undefined && expiry <= Date.now() + EXPIRY_MARGIN_MS ? undefined : value;
+  } catch { return undefined; }
+}
 
 export function telescopeSlug(value: string | undefined): string {
   return (value ?? "")
@@ -52,7 +86,7 @@ async function telescopeProfiles(): Promise<TelescopeCatalogProfile[]> {
   if (!pendingProfiles) {
     pendingProfiles = fetchProfiles()
       .then((profiles) => {
-        cachedProfiles = { profiles, expiresAt: Date.now() + CACHE_TTL_MS };
+        cachedProfiles = { profiles, expiresAt: avatarProfilesCacheExpiry(profiles, Date.now()) };
         return profiles;
       })
       .finally(() => { pendingProfiles = undefined; });
@@ -63,7 +97,7 @@ async function telescopeProfiles(): Promise<TelescopeCatalogProfile[]> {
 export async function signedTelescopeAvatarUrl(creator: CreatorIdentity): Promise<string | undefined> {
   try {
     const profile = matchingTelescopeProfile(await telescopeProfiles(), creator);
-    return profile?.profileImageThumbUrl || profile?.profileImageUrl;
+    return usableAvatarUrl(profile?.profileImageThumbUrl) ?? usableAvatarUrl(profile?.profileImageUrl);
   } catch {
     // Catalog availability must not depend on the source application's media endpoint.
     return undefined;

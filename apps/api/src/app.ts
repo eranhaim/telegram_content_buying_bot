@@ -69,9 +69,7 @@ const catalogCreator = async (creator: any) => ({
   displayName: creator.displayName,
   slug: creator.slug,
   bio: creator.bio,
-  avatarUrl:
-    await signedTelescopeAvatarUrl(creator)
-    ?? await signedTelescopeUrl(creator.telescopeAvatarThumbKey ?? creator.telescopeAvatarKey),
+  avatarUrl: `/api/catalog/creators/${String(creator._id)}/avatar`,
 });
 const audit = (req: Request, action: string, entityType: string, entityId?: string, metadata?: unknown) =>
   AuditEvent.create({ actorType: req.actor?.kind ?? "system", actorId: req.actor?.kind === "admin" ? "shared-password" : req.actor?.kind === "telegram" ? req.actor.telegramId : undefined, action, entityType, entityId, metadata, ip: req.ip });
@@ -133,6 +131,18 @@ app.post("/api/auth/admin", rateLimit(15 * 60_000, 10), asyncRoute(async (req, r
   res.json({ token: issueAdminSession() });
 }));
 
+// Image elements cannot attach the customer session token. Only published
+// creator portraits are exposed here; paid media remains private.
+app.get("/api/catalog/creators/:id/avatar", asyncRoute(async (req, res) => {
+  if (!objectId.safeParse(req.params.id).success) return res.sendStatus(404);
+  const creator = await Creator.findOne({ _id: req.params.id, status: "published" }).lean();
+  if (!creator) return res.sendStatus(404);
+  const url = await signedTelescopeAvatarUrl(creator as any)
+    ?? await signedTelescopeUrl((creator as any).telescopeAvatarThumbKey ?? (creator as any).telescopeAvatarKey);
+  if (!url) return res.sendStatus(404);
+  res.setHeader("Cache-Control", "private, no-store");
+  return res.redirect(302, url);
+}));
 app.get("/api/catalog/categories", requireActor("customer"), asyncRoute(async (_req, res) => {
   const categories = await Category.find({ status: "active" }).select("name slug").sort({ name: 1 }).lean();
   res.json({ items: categories.map((category: any) => ({ _id: String(category._id), name: category.name, slug: category.slug })) });

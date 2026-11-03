@@ -97,13 +97,20 @@ function CreatorCard({ creator }: { creator: { name: string; bio: string; status
   return <><div className="creator-cover" aria-hidden="true">{initial && <span className="creator-monogram">{initial}</span>}{creator.status && <span className="creator-status">{creator.status}</span>}</div><h2>{creator.name}</h2><p>{creator.bio}</p>{creator.meta && <small>{creator.meta}</small>}</>;
 }
 
+function CreatorAvatar({ creator, size, lazy = false }: { creator: Creator | null; size: number; lazy?: boolean }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [creator?._id, creator?.avatarUrl]);
+  useEffect(() => { if (!failed) return; const timer = window.setTimeout(() => setFailed(false), 60_000); return () => window.clearTimeout(timer); }, [failed]);
+  return creator?.avatarUrl && !failed
+    ? <img src={creator.avatarUrl} alt="" width={size} height={size} loading={lazy ? "lazy" : "eager"} onError={() => setFailed(true)} />
+    : <span aria-hidden="true">{creator?.displayName.trim().slice(0, 1)}</span>;
+}
+
 function TelescopeCreatorList({ creators, viewLabel }: { creators: Creator[]; viewLabel: string }) {
   return <section className="telescope-creator-list" aria-label={viewLabel}>
     {creators.map((creator) => <Link className="telescope-creator-row" key={creator._id} to={`/creators/${creator.slug}`}>
       <div className="telescope-creator-avatar">
-        {creator.avatarUrl
-          ? <img src={creator.avatarUrl} alt="" width="72" height="72" loading="lazy" />
-          : <span aria-hidden="true">{creator.displayName.trim().slice(0, 1)}</span>}
+        <CreatorAvatar creator={creator} size={72} lazy />
       </div>
       <div className="telescope-creator-details">
         <h2>{creator.displayName}</h2>
@@ -258,9 +265,7 @@ function CreatorPage({ t, locale, categories, selected, select, onCartChange }: 
     <Link className="back-link" to="/">← {t.backDiscover}</Link>
     <section className="creator-profile-hero">
       <div className="creator-profile-avatar">
-        {creator?.avatarUrl
-          ? <img src={creator.avatarUrl} alt="" width="112" height="112" />
-          : <span aria-hidden="true">{creator?.displayName.trim().slice(0, 1)}</span>}
+        <CreatorAvatar creator={creator} size={112} />
       </div>
       <div>
         <p className="eyebrow">{t.creatorStorefront}</p>
