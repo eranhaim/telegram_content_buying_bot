@@ -79,7 +79,6 @@ function TelescopeCreatorList({ creators, viewLabel }: { creators: Creator[]; vi
       </div>
       <div className="telescope-creator-details">
         <h2>{creator.displayName}</h2>
-        <p>{creator.bio}</p>
         <small>{viewLabel}</small>
       </div>
       <span className="telescope-creator-arrow" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg></span>
@@ -171,7 +170,7 @@ function Catalog({ t }: { t: CustomerText }) {
       <p className="catalog-lead">{t.catalogLead}</p>
     </div>
     {creators.length
-      ? <TelescopeCreatorList creators={creators.map((creator) => ({ ...creator, bio: creator.bio || t.defaultBio }))} viewLabel={t.viewCreator} />
+      ? <TelescopeCreatorList creators={creators} viewLabel={t.viewCreator} />
       : <article className="creator-card creator-empty-card"><div className="creator-cover" /><h2>{t.emptyCatalogTitle}</h2><p>{t.emptyCatalogText}</p></article>}
   </main>;
 }
