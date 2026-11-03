@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
-import { Autocomplete, TextField, ThemeProvider, createTheme } from "@mui/material";
+import { Alert, Autocomplete, Box, Button, Dialog as MuiDialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, TextField, ThemeProvider, Typography, createTheme } from "@mui/material";
+import { CacheProvider } from "@emotion/react";
+import createCache from "@emotion/cache";
+import rtlPlugin from "@mui/stylis-plugin-rtl";
+import { prefixer } from "stylis";
 import { clearToken, Creator, euroToMinor, money, Product, request, setToken } from "./api";
 import { adminCopy, adminDirection, adminLanguage, type AdminLanguage } from "./admin-i18n";
 import { customerCopy, customerDirection, customerLocale, customerLocales, type CustomerLocale } from "./customer-i18n";
@@ -33,6 +37,9 @@ type AdminProduct = {
   deliveryMessage?: string; amountMinor: number; currency: "EUR"; categoryIds: string[]; previewAssetId?: string; previewMode: "none" | "blurred" | "visible"; mediaAssetIds: string[];
 };
 const adminMuiTheme = createTheme({ palette: { mode: "dark", primary: { main: "#efad99" }, background: { paper: "#241c29" } }, typography: { fontFamily: "Inter, Heebo, sans-serif" } });
+const adminMuiRtlTheme = createTheme(adminMuiTheme, { direction: "rtl" });
+const adminRtlCache = createCache({ key: "vesperrtl", stylisPlugins: [prefixer, rtlPlugin] });
+const adminLtrCache = createCache({ key: "vesper" });
 type AdminOrder = {
   _id: string; publicId: string; totalMinor: number; currency: string;
   paymentStatus: string; fulfillmentStatus: string; createdAt: string; paidAt?: string;
@@ -538,14 +545,23 @@ function ProductEditor({ product, creatorId, assets, categories, t, close, load 
   const [categoryIds, setCategoryIds] = useState(product?.categoryIds ?? []);
   const [mediaIds, setMediaIds] = useState(product?.mediaAssetIds ?? []);
   const [uploadedAssets, setUploadedAssets] = useState<AdminAsset[]>([]);
+  const [freshAssets, setFreshAssets] = useState(assets);
   const [mediaIndex, setMediaIndex] = useState(0);
   const [assetPage, setAssetPage] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const allAssets = [...uploadedAssets, ...assets.filter((asset) => !uploadedAssets.some((uploaded) => uploaded._id === asset._id))];
+  const direction = document.documentElement.dir === "rtl" ? "rtl" : "ltr";
+  useEffect(() => {
+    let active = true;
+    const refresh = () => void request<{ items: AdminAsset[] }>("/admin/assets").then((result) => { if (active) setFreshAssets(result.items); }).catch(() => { if (active) setError(t.requestFailed); });
+    refresh(); const timer = window.setInterval(refresh, 3 * 60_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [t.requestFailed]);
+  const allAssets = [...uploadedAssets, ...freshAssets.filter((asset) => !uploadedAssets.some((uploaded) => uploaded._id === asset._id))];
   const deliveryAssets = allAssets.filter((asset) => (asset.purpose ?? "delivery") === "delivery" && asset.status === "ready");
   const assetPageCount = Math.max(1, Math.ceil(deliveryAssets.length / 8));
   const currentMedia = allAssets.find((asset) => asset._id === mediaIds[mediaIndex]);
+  const currentPreview = allAssets.find((asset) => asset._id === previewId) ?? preview;
   const uploadFile = async (file: File | undefined, purpose: "preview" | "delivery") => {
     if (!file) return;
     setBusy(true); setError("");
@@ -567,21 +583,30 @@ function ProductEditor({ product, creatorId, assets, categories, t, close, load 
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const data = new FormData(event.currentTarget); setBusy(true); setError("");
     try {
-      await request(product ? `/admin/products/${product._id}` : "/admin/products", { method: product ? "PATCH" : "POST", body: JSON.stringify({ ...(product ? {} : { creatorId, currency: "EUR" }), title: data.get("title"), description: data.get("description"), deliveryMessage: data.get("deliveryMessage"), amountMinor: euroToMinor(data.get("price")), categoryIds, ...(!product || JSON.stringify(mediaIds) !== JSON.stringify(product.mediaAssetIds) ? { mediaAssetIds: mediaIds } : {}), previewMode: data.get("previewMode"), previewAssetId: data.get("previewMode") === "none" ? null : previewId || undefined }) });
+      await request(product ? `/admin/products/${product._id}` : "/admin/products", { method: product ? "PATCH" : "POST", body: JSON.stringify({ ...(product ? {} : { creatorId, currency: "EUR" }), title: data.get("title"), description: data.get("description"), deliveryMessage: data.get("deliveryMessage"), amountMinor: euroToMinor(data.get("price")), categoryIds, ...(!product || JSON.stringify(mediaIds) !== JSON.stringify(product.mediaAssetIds) ? { mediaAssetIds: mediaIds } : {}), previewMode, previewAssetId: previewMode === "none" ? null : previewId || undefined }) });
       load(); close();
     } catch { setError(t.saveFailed); } finally { setBusy(false); }
   };
-  return <Dialog title={product ? t.editContent : t.newContent} close={close} closeLabel={t.close}><form className="product-editor" onSubmit={(event) => void save(event)}>
-    {error && <p role="alert" className="notice">{error}</p>}
-    <label>{t.productTitle}<input name="title" defaultValue={product?.title} required /></label>
-    <label>{t.price}<input name="price" inputMode="decimal" defaultValue={product ? (product.amountMinor / 100).toFixed(2) : ""} required /></label>
-    <label>{t.description}<textarea name="description" defaultValue={product?.description} /></label>
-    <label>{t.deliveryMessage}<textarea name="deliveryMessage" defaultValue={product?.deliveryMessage} maxLength={1000} /></label>
-    <fieldset><legend>{t.storefrontPreview}</legend><div className="editor-preview">{preview ? <AdminAssetVisual asset={preview} unavailable={t.noPreviewMedia} /> : <div className="asset-visual-fallback">{t.noPreviewMedia}</div>}</div><label className="preview-upload">{t.changePreview}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={(event) => { void uploadFile(event.target.files?.[0], "preview"); event.target.value = ""; }} /></label><label>{t.preview}<select name="previewMode" value={previewMode} onChange={(event) => setPreviewMode(event.target.value as "none" | "blurred" | "visible")}><option value="none">{t.noPreviewOption}</option><option value="blurred">{t.blurredPreviewOption}</option><option value="visible">{t.visiblePreviewOption}</option></select></label></fieldset>
-    <fieldset><legend>{t.privateFiles}</legend><div className="editor-player">{currentMedia ? <AdminAssetVisual asset={currentMedia} unavailable={t.noPreviewMedia} /> : <div className="asset-visual-fallback">{t.noMedia}</div>}</div><div className="editor-media-nav"><button type="button" disabled={mediaIndex === 0} onClick={() => setMediaIndex(mediaIndex - 1)} aria-label={t.previousPage}>←</button><span>{mediaIds.length ? mediaIndex + 1 : 0} / {mediaIds.length}</span><button type="button" disabled={mediaIndex >= mediaIds.length - 1} onClick={() => setMediaIndex(mediaIndex + 1)} aria-label={t.nextPage}>→</button></div>{currentMedia && <small>{currentMedia.fileName}</small>}<div className="delivery-asset-grid"><label className="delivery-upload-tile"><span aria-hidden="true">+</span>{t.uploadMedia}<input type="file" accept="image/*,video/*,audio/*,application/*" disabled={busy} onChange={(event) => { void uploadFile(event.target.files?.[0], "delivery"); event.target.value = ""; }} /></label>{deliveryAssets.slice((assetPage - 1) * 8, assetPage * 8).map((asset) => <DeliveryAssetCard key={asset._id} asset={asset} selected={mediaIds.includes(asset._id)} onToggle={() => { setMediaIds(mediaIds.includes(asset._id) ? mediaIds.filter((id) => id !== asset._id) : [...mediaIds, asset._id]); setMediaIndex(0); }} t={t} />)}</div><div className="editor-media-nav"><button type="button" disabled={assetPage <= 1} onClick={() => setAssetPage(assetPage - 1)}>{t.previousPage}</button><span>{assetPage} / {assetPageCount}</span><button type="button" disabled={assetPage >= assetPageCount} onClick={() => setAssetPage(assetPage + 1)}>{t.nextPage}</button></div></fieldset>
-    <ThemeProvider theme={adminMuiTheme}><Autocomplete multiple disableCloseOnSelect options={categories.filter((category) => category.status === "active" || categoryIds.includes(category._id))} value={categories.filter((category) => categoryIds.includes(category._id))} isOptionEqualToValue={(a, b) => a._id === b._id} getOptionLabel={(category) => category.name} onChange={(_event, values) => setCategoryIds(values.map((category) => category._id))} renderInput={(params) => <TextField {...params} label={t.categories} placeholder={t.categorySearch} />} sx={{ mt: 2 }} /></ThemeProvider>
-    <button className="dialog-submit" disabled={busy || !mediaIds.length}>{product ? t.save : t.createProduct}</button>
-  </form></Dialog>;
+  return <CacheProvider value={direction === "rtl" ? adminRtlCache : adminLtrCache}><ThemeProvider theme={direction === "rtl" ? adminMuiRtlTheme : adminMuiTheme}>
+    <MuiDialog open onClose={busy ? undefined : close} dir={direction} fullWidth maxWidth="md" scroll="paper" aria-labelledby="product-editor-title" className="product-editor-modal" slotProps={{ paper: { sx: { borderRadius: 3, bgcolor: "#19131d", backgroundImage: "none", maxHeight: "calc(100dvh - 32px)" } } }}>
+      <Box component="form" onSubmit={(event) => void save(event)} className="mui-product-form">
+        <DialogTitle id="product-editor-title" className="mui-product-title"><span>{product ? t.editContent : t.newContent}</span><IconButton aria-label={t.close} onClick={close} disabled={busy}>×</IconButton></DialogTitle>
+        <DialogContent dividers className="mui-product-content">
+          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+          <Box className="mui-product-fields">
+            <TextField name="title" label={t.productTitle} defaultValue={product?.title} required fullWidth />
+            <TextField name="price" label={t.price} defaultValue={product ? (product.amountMinor / 100).toFixed(2) : ""} required fullWidth slotProps={{ htmlInput: { inputMode: "decimal", dir: "ltr" } }} />
+            <TextField name="description" label={t.description} defaultValue={product?.description} multiline minRows={2} fullWidth />
+            <TextField name="deliveryMessage" label={t.deliveryMessage} defaultValue={product?.deliveryMessage} multiline minRows={2} fullWidth slotProps={{ htmlInput: { maxLength: 1000 } }} />
+            <Autocomplete multiple disableCloseOnSelect options={categories.filter((category) => category.status === "active" || categoryIds.includes(category._id))} value={categories.filter((category) => categoryIds.includes(category._id))} isOptionEqualToValue={(a, b) => a._id === b._id} getOptionLabel={(category) => category.name} onChange={(_event, values) => setCategoryIds(values.map((category) => category._id))} renderInput={(params) => <TextField {...params} label={t.categories} placeholder={t.categorySearch} />} />
+          </Box>
+          <Box className="mui-media-panel"><Typography variant="h6">{t.storefrontPreview}</Typography><div className="editor-preview">{currentPreview ? <AdminAssetVisual asset={currentPreview} unavailable={t.noPreviewMedia} /> : <div className="asset-visual-fallback">{t.noPreviewMedia}</div>}</div><Button component="label" variant="outlined" disabled={busy}>{t.changePreview}<input type="file" hidden accept="image/jpeg,image/png,image/webp" onChange={(event) => { void uploadFile(event.target.files?.[0], "preview"); event.target.value = ""; }} /></Button><TextField select fullWidth name="previewMode" label={t.preview} value={previewMode} onChange={(event) => setPreviewMode(event.target.value as "none" | "blurred" | "visible")}><MenuItem value="none">{t.noPreviewOption}</MenuItem><MenuItem value="blurred">{t.blurredPreviewOption}</MenuItem><MenuItem value="visible">{t.visiblePreviewOption}</MenuItem></TextField></Box>
+          <Box className="mui-media-panel"><Typography variant="h6">{t.privateFiles}</Typography><div className="editor-player">{currentMedia ? <AdminAssetVisual key={`${currentMedia._id}-${currentMedia.url}`} asset={currentMedia} unavailable={t.noPreviewMedia} /> : <div className="asset-visual-fallback">{t.noMedia}</div>}</div><div className="editor-media-nav"><IconButton disabled={mediaIndex === 0} onClick={() => setMediaIndex(mediaIndex - 1)} aria-label={t.previousPage}>‹</IconButton><span dir="ltr">{mediaIds.length ? mediaIndex + 1 : 0} / {mediaIds.length}</span><IconButton disabled={mediaIndex >= mediaIds.length - 1} onClick={() => setMediaIndex(mediaIndex + 1)} aria-label={t.nextPage}>›</IconButton></div>{currentMedia && <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>{currentMedia.fileName}</Typography>}<div className="delivery-asset-grid"><label className="delivery-upload-tile"><span aria-hidden="true">+</span>{t.uploadMedia}<input type="file" accept="image/*,video/*,audio/*,application/*" disabled={busy} onChange={(event) => { void uploadFile(event.target.files?.[0], "delivery"); event.target.value = ""; }} /></label>{deliveryAssets.slice((assetPage - 1) * 8, assetPage * 8).map((asset) => <DeliveryAssetCard key={asset._id} asset={asset} selected={mediaIds.includes(asset._id)} onToggle={() => { setMediaIds(mediaIds.includes(asset._id) ? mediaIds.filter((id) => id !== asset._id) : [...mediaIds, asset._id]); setMediaIndex(0); }} t={t} />)}</div><div className="editor-media-nav"><Button type="button" disabled={assetPage <= 1} onClick={() => setAssetPage(assetPage - 1)}>{t.previousPage}</Button><span dir="ltr">{assetPage} / {assetPageCount}</span><Button type="button" disabled={assetPage >= assetPageCount} onClick={() => setAssetPage(assetPage + 1)}>{t.nextPage}</Button></div></Box>
+        </DialogContent>
+        <DialogActions className="mui-product-actions"><Button onClick={close} disabled={busy}>{t.cancel}</Button><Button type="submit" variant="contained" disabled={busy || !mediaIds.length}>{product ? t.save : t.createProduct}</Button></DialogActions>
+      </Box>
+    </MuiDialog>
+  </ThemeProvider></CacheProvider>;
 }
 
 function AdminCategories({ categories, products, t, submit, editProduct, startDelete }: { categories: AdminCategory[]; products: AdminProduct[]; t: typeof adminCopy.en; submit: AdminSubmit; editProduct: (product: AdminProduct) => void; startDelete: StartDelete }) {

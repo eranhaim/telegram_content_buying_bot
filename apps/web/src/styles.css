@@ -996,6 +996,20 @@ fieldset input { width: auto; margin-inline-end: 8px; }
 .editor-preview, .editor-player { display: grid; place-items: center; background: #171310; border-radius: 12px; overflow: hidden; height: 220px; }
 .editor-preview img, .editor-preview video, .editor-player img, .editor-player video { width: 100%; height: 100%; object-fit: contain; }
 .editor-media-nav { display: flex; align-items: center; justify-content: center; gap: 20px; margin-top: 10px; }
+.mui-product-form { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.mui-product-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.mui-product-content { min-height: 0; overscroll-behavior: contain; }
+.mui-product-fields { display: grid; gap: 18px; padding-block: 12px; }
+.mui-media-panel { display: grid; gap: 14px; margin-block: 18px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; }
+.mui-product-actions { padding: 14px 24px; }
+.product-editor-modal .MuiButtonBase-root { margin: 0; font-family: inherit; }
+.product-editor-modal .MuiIconButton-root { min-height: 40px; width: 40px; padding: 6px; background: transparent; color: inherit; font-size: 1.5rem; }
+.product-editor-modal .MuiInputBase-input { margin: 0; min-height: 0; border: 0; border-radius: 0; background: transparent; color: inherit; box-shadow: none; }
+.product-editor-modal .MuiInputLabel-root { margin: 0; color: var(--ash); }
+.product-editor-modal .MuiAutocomplete-root .MuiButtonBase-root { min-height: 0; }
+.product-editor-modal .MuiAutocomplete-root .MuiAutocomplete-input { width: auto; }
+.product-editor-modal .MuiButton-contained { color: var(--ink); background: var(--bone); }
+.product-editor-modal .delivery-asset-grid { margin-top: 8px; }
 .preview-upload { display: inline-block; cursor: pointer; margin: 12px 0; color: var(--copper-bright); }
 .preview-upload input { display: block; max-width: 100%; }
 .admin-filter-fields { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }

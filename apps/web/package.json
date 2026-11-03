@@ -9,16 +9,20 @@
     "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
+    "@emotion/cache": "^11.14.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@mui/material": "^9.5.0",
+    "@mui/stylis-plugin-rtl": "^9.5.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.2.0"
+    "react-router-dom": "^7.2.0",
+    "stylis": "^4.2.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
+    "@types/stylis": "^4.2.7",
     "@vitejs/plugin-react": "^4.3.4",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3",
