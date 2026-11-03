@@ -75,6 +75,7 @@ const audit = (req: Request, action: string, entityType: string, entityId?: stri
   AuditEvent.create({ actorType: req.actor?.kind ?? "system", actorId: req.actor?.kind === "admin" ? "shared-password" : req.actor?.kind === "telegram" ? req.actor.telegramId : undefined, action, entityType, entityId, metadata, ip: req.ip });
 
 const health = asyncRoute(async (_req, res) => { res.json({ ok: true }); });
+const logReference = (value: unknown) => typeof value === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(value) ? value : "invalid";
 app.get("/health", health);
 app.get("/api/health", health);
 
@@ -84,15 +85,18 @@ app.post(["/api/webhooks/mantapay", "/api/webhooks/mantapay/:legacy"], express.u
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
   const hashKey = config.MANTAPAY_HASH_KEY;
   const signatureValid = hashKey ? verifyWebhookSignature(rawPairs, hashKey) : false;
-  if (!signatureValid) return res.status(401).json({ error: "invalid_signature" });
+  if (!signatureValid) { console.warn("MantaPay callback rejected", { reason: "invalid_signature", signaturePresent: Boolean(req.body?.signature ?? req.body?.Signature) }); return res.status(401).json({ error: "invalid_signature" }); }
   const payment = parseWebhook(rawPairs);
+  console.info("MantaPay callback received", { reference: logReference(payment.referenceId), status: payment.status, transactionPresent: Boolean(payment.transactionId) });
   if (payment.status === "approved") {
     if (!payment.referenceId || !payment.transactionId) return res.status(400).json({ error: "invalid_payment" });
     const order = await Order.findOne({ publicId: payment.referenceId });
     if (!order) return res.status(404).json({ error: "unknown_order" });
-    const status = await getStatusByOrder(payment.referenceId);
+    let status: Awaited<ReturnType<typeof getStatusByOrder>>;
+    try { status = await getStatusByOrder(payment.referenceId); }
+    catch { console.error("MantaPay callback verification failed", { reference: logReference(payment.referenceId), reason: "status_request_failed" }); throw new Error("payment_status_unavailable"); }
     const verified = status.ok && status.transactions.some((transaction) => transaction.status === "approved" && transaction.transId === payment.transactionId && transaction.currency === order.currency && transaction.amount != null && Math.round(transaction.amount * 100) === order.totalMinor);
-    if (!verified || payment.currency !== order.currency || payment.grossAmount == null || Math.round(payment.grossAmount * 100) !== order.totalMinor) return res.status(409).json({ error: "payment_verification_failed" });
+    if (!verified || payment.currency !== order.currency || payment.grossAmount == null || Math.round(payment.grossAmount * 100) !== order.totalMinor) { console.warn("MantaPay callback verification failed", { reference: logReference(payment.referenceId), reason: "status_or_amount_mismatch" }); return res.status(409).json({ error: "payment_verification_failed" }); }
   }
   const eventId = payment.transactionId ?? `${payment.referenceId}-${Date.now()}`;
   try {
@@ -199,6 +203,7 @@ app.delete("/api/cart/items/:productId", requireActor("customer"), asyncRoute(as
 app.post("/api/checkout", requireActor("customer"), rateLimit(60_000, 5), asyncRoute(async (req, res) => {
   if (req.actor?.kind !== "telegram") return res.status(403).json({ error: "telegram_checkout_required" });
   const order = await createOrderForCart(actorUser(req)!);
+  console.info("MantaPay checkout created", { reference: order.publicId, amountMinor: order.totalMinor, currency: order.currency, callbackHost: new URL(config.PUBLIC_APP_URL).host });
   res.status(201).json({
     orderId: order.publicId, totalMinor: order.totalMinor, currency: order.currency,
     checkoutUrl: new URL(`/api/checkout/${order.publicId}?state=${order.returnNonce}`, config.PUBLIC_APP_URL).toString(),
@@ -214,6 +219,7 @@ app.get("/api/checkout/:publicId", rateLimit(60_000, 10), asyncRoute(async (req,
     order.checkoutUrl = url;
     await order.save();
   }
+  console.info("MantaPay checkout redirect", { reference: order.publicId, providerHost: new URL(url).host });
   res.redirect(302, url);
 }));
 app.get("/api/orders/:publicId", requireActor("customer"), asyncRoute(async (req, res) => {
