@@ -6,7 +6,7 @@ MongoDB order records, private S3-compatible media storage, and protected Bot AP
 ## Run locally
 
 1. Copy `.env.example` to `.env` and replace every production secret.
-2. Start MongoDB and MinIO with `docker compose up -d`.
+2. Configure a private S3-compatible bucket in `.env`, including CORS access for the web application's origin, and start MongoDB with `docker compose up -d mongodb`.
 3. Run `npm install`, then `npm run dev` and `npm run dev:web` in another terminal.
 4. Configure the Telegram Mini App URL to your HTTPS web deployment and set the MantaPay callback to `https://your-host/api/webhooks/mantapay`.
 
